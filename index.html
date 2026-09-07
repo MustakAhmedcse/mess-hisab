@@ -2,13 +2,14 @@
 <html lang="bn">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Mess Hisab</title>
-<meta name="description" content="Mess bazar, meal &amp; expense tracker">
+<meta name="description" content="মেসের বাজার, meal ও খরচের হিসাব">
+<meta name="theme-color" content="#6366f1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%BD%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -16,12 +17,10 @@
   <aside class="sidebar">
     <div class="brand"><span class="brand-emoji">🍽️</span><span>Mess Hisab</span></div>
     <nav class="nav">
-      <a href="#/dashboard" class="nav-item" data-route="dashboard"><span class="nav-icon">🏠</span>Dashboard</a>
-      <a href="#/bazar" class="nav-item" data-route="bazar"><span class="nav-icon">🛒</span>Bazar Cost</a>
-      <a href="#/others" class="nav-item" data-route="others"><span class="nav-icon">💡</span>Others Cost</a>
-      <a href="#/meals" class="nav-item" data-route="meals"><span class="nav-icon">🍽️</span>Meals</a>
-      <a href="#/settlement" class="nav-item" data-route="settlement"><span class="nav-icon">🧾</span>Settlement</a>
-      <a href="#/more" class="nav-item" data-route="more"><span class="nav-icon">⚙️</span>Members &amp; Settings</a>
+      <a href="#/today" class="nav-item" data-route="today"><span class="nav-icon">☀️</span>আজ</a>
+      <a href="#/khoroch" class="nav-item" data-route="khoroch"><span class="nav-icon">🛒</span>খরচ</a>
+      <a href="#/hisab" class="nav-item" data-route="hisab"><span class="nav-icon">🧾</span>হিসাব</a>
+      <a href="#/more" class="nav-item" data-route="more"><span class="nav-icon">⚙️</span>আরও</a>
     </nav>
     <div class="sidebar-footer">Free &amp; open · GitHub Pages</div>
   </aside>
@@ -29,30 +28,27 @@
   <div class="main-col">
     <header class="topbar">
       <button class="icon-btn desktop-only" id="menuToggle" title="Sidebar লুকাও / দেখাও">☰</button>
-      <h1 id="pageTitle">Dashboard</h1>
+      <h1 id="pageTitle">আজ</h1>
       <div class="topbar-actions">
-        <select id="monthSelect" class="month-select" title="Select month"></select>
-        <button class="icon-btn" id="addMonthBtn" title="Add month">➕</button>
-        <button class="icon-btn" id="themeToggle" title="Toggle theme">🌓</button>
+        <select id="monthSelect" class="month-select" title="মাস"></select>
+        <button class="icon-btn" id="addMonthBtn" title="অন্য মাস">📅</button>
+        <button class="icon-btn" id="themeToggle" title="আলো / আঁধার">🌓</button>
       </div>
     </header>
     <main id="viewRoot" class="view-root"></main>
   </div>
 
   <nav class="bottom-nav">
-    <a href="#/dashboard" class="nav-item" data-route="dashboard"><span class="nav-icon">🏠</span><span>Home</span></a>
-    <a href="#/bazar" class="nav-item" data-route="bazar"><span class="nav-icon">🛒</span><span>Bazar</span></a>
-    <a href="#/others" class="nav-item" data-route="others"><span class="nav-icon">💡</span><span>Others</span></a>
-    <a href="#/meals" class="nav-item" data-route="meals"><span class="nav-icon">🍽️</span><span>Meals</span></a>
-    <a href="#/settlement" class="nav-item" data-route="settlement"><span class="nav-icon">🧾</span><span>Settle</span></a>
-    <a href="#/more" class="nav-item" data-route="more"><span class="nav-icon">⚙️</span><span>More</span></a>
+    <a href="#/today" class="nav-item" data-route="today"><span class="nav-icon">☀️</span><span>আজ</span></a>
+    <a href="#/khoroch" class="nav-item" data-route="khoroch"><span class="nav-icon">🛒</span><span>খরচ</span></a>
+    <a href="#/hisab" class="nav-item" data-route="hisab"><span class="nav-icon">🧾</span><span>হিসাব</span></a>
+    <a href="#/more" class="nav-item" data-route="more"><span class="nav-icon">⚙️</span><span>আরও</span></a>
   </nav>
 </div>
 
 <div id="modalRoot"></div>
 <div id="toastRoot" class="toast-root"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>
