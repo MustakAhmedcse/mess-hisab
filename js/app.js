@@ -1,8 +1,9 @@
-import { loadDB, saveDB, uid, ensureMonth, activeMembers, memberName, computeSummary, exportDB, exportMonth, importFile } from './store.js';
+import { subscribeDB, saveDB, resetToSeed, uid, ensureMonth, activeMembers, memberName, computeSummary, exportDB, exportMonth, importFile } from './store.js';
 import { avatarColor, initials, money, openModal, closeModal, toast } from './ui.js';
 import { renderCostChart, renderMemberChart } from './charts.js';
 
 let DB = null;
+let firstLoad = true;
 
 const ROUTES = ['dashboard', 'members', 'costs', 'meals', 'reports', 'settings'];
 const ROUTE_TITLES = {
@@ -21,14 +22,25 @@ const CATEGORIES = [
   { key: 'other', label: 'Other', icon: '📦' }
 ];
 
-async function init() {
-  DB = await loadDB();
-  if (!DB.settings) DB.settings = { currentMonth: Object.keys(DB.months)[0] || '2026-08', theme: 'light' };
-  applyTheme(DB.settings.theme || 'light');
-  bindGlobalEvents();
-  window.addEventListener('hashchange', render);
-  if (!location.hash) location.hash = '#/dashboard';
-  render();
+function init() {
+  subscribeDB(
+    (data) => {
+      DB = data;
+      if (!DB.settings) DB.settings = { currentMonth: Object.keys(DB.months)[0] || '2026-08', theme: 'light' };
+      applyTheme(DB.settings.theme || 'light');
+      if (firstLoad) {
+        firstLoad = false;
+        bindGlobalEvents();
+        window.addEventListener('hashchange', render);
+        if (!location.hash) location.hash = '#/dashboard';
+      }
+      const modalOpen = document.getElementById('modalRoot').innerHTML.trim() !== '';
+      if (!modalOpen) render();
+    },
+    () => {
+      toast('Sync error — check your internet connection', 'error');
+    }
+  );
 }
 
 function currentMonth() {
@@ -536,10 +548,10 @@ function renderSettings(root) {
   document.getElementById('lightBtn').onclick = () => { applyTheme('light'); saveDB(DB); render(); };
   document.getElementById('darkBtn').onclick = () => { applyTheme('dark'); saveDB(DB); render(); };
   document.getElementById('addMonthBtn2').onclick = openAddMonthModal;
-  document.getElementById('resetBtn').onclick = () => {
-    if (confirm('সব ডেটা মুছে যাবে, নিশ্চিত?')) {
-      localStorage.removeItem('messHisabDB');
-      location.reload();
+  document.getElementById('resetBtn').onclick = async () => {
+    if (confirm('সব ডেটা মুছে যাবে (সব ডিভাইস থেকেই), নিশ্চিত?')) {
+      await resetToSeed();
+      toast('Data reset');
     }
   };
 }

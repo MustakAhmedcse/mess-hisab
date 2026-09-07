@@ -1,22 +1,45 @@
-const STORAGE_KEY = 'messHisabDB';
+import { dbDocRef, setDoc, onSnapshot } from './firebase-init.js';
 
-export async function loadDB() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw) {
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      console.warn('Corrupt local data, reloading seed', e);
-    }
+let seedCache = null;
+
+async function getSeed() {
+  if (!seedCache) {
+    const res = await fetch('data/seed.json');
+    seedCache = await res.json();
   }
-  const res = await fetch('data/seed.json');
-  const seed = await res.json();
-  saveDB(seed);
-  return seed;
+  return seedCache;
+}
+
+/**
+ * Subscribes to the shared Firestore document so every device (phone, laptop,
+ * any member) sees the same data live. onData fires once immediately (from
+ * cache or server) and again whenever anyone changes anything, anywhere.
+ */
+export function subscribeDB(onData, onError) {
+  return onSnapshot(
+    dbDocRef,
+    async (snap) => {
+      if (snap.exists()) {
+        onData(snap.data());
+      } else {
+        const seed = await getSeed();
+        await setDoc(dbDocRef, seed);
+      }
+    },
+    (err) => {
+      console.error('Firestore sync error:', err);
+      if (onError) onError(err);
+    }
+  );
 }
 
 export function saveDB(db) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  setDoc(dbDocRef, db).catch((err) => console.error('Failed to save to Firestore:', err));
+}
+
+export async function resetToSeed() {
+  const seed = await getSeed();
+  await setDoc(dbDocRef, seed);
 }
 
 export function uid(prefix = 'id') {

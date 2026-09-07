@@ -1,6 +1,6 @@
 # Mess Hisab 🍽️
 
-Shared-house (mess) bazar, meal & expense tracker — free static web app, no backend, no database server. Runs entirely in the browser and can be hosted for free on **GitHub Pages**.
+Shared-house (mess) bazar, meal & expense tracker — free static web app hosted on **GitHub Pages**, with live data sync across every device via **Firebase Firestore** (also free, on the Spark plan).
 
 ## Features
 
@@ -9,12 +9,21 @@ Shared-house (mess) bazar, meal & expense tracker — free static web app, no ba
 - **Meals** — spreadsheet-style daily grid to log each member's meal count
 - **Dashboard** — stat cards, expense breakdown (doughnut chart), deposit-vs-cost (bar chart), per-member due/advance badges, recent activity feed
 - **Reports** — full monthly summary table, deposit & rent editor
-- **Export / Import** — download the whole database or a single month as JSON; re-import anytime as backup or to move data to another device
+- **Live multi-device sync** — a phone, a laptop, anyone's browser: everyone sees the same data, updated the moment anyone changes anything (real-time, via Firestore)
+- **Export / Import** — download the whole database or a single month as JSON, for backups or moving data around
 - **Light / Dark mode**, fully responsive (sidebar on desktop, bottom nav on mobile)
 
-## Data model
+## How data sync works
 
-Everything lives in one JSON object (see `data/seed.json` for the shape), persisted to the browser's `localStorage` under the key `messHisabDB`:
+All data lives in **one Firestore document** (`mess/data` in the `mess-hisab-3f986` Firebase project). The app subscribes to that document:
+
+- Every device that opens the site gets the current data immediately, and is pushed any change **live** — no refresh needed.
+- Every add/edit/delete writes straight back to that same document, so it reaches every other open device within a second or two.
+- Firestore's offline persistence is enabled, so the app still works with no internet — changes queue up and sync automatically once you're back online.
+
+This means the earlier "phone vs laptop" problem is solved: there is no longer a separate copy per device/browser — everyone reads and writes the same shared record.
+
+### Data shape
 
 ```json
 {
@@ -33,11 +42,33 @@ Everything lives in one JSON object (see `data/seed.json` for the shape), persis
 
 Due/advance per member = `deposit − (mealRate × meals + rentShare)`, where `mealRate = totalCost / totalMeals` for that month.
 
-> **Note on data:** `data/seed.json` ships empty on purpose — this repo is public, and real member names / bazar amounts / deposits shouldn't live in public git history. The app is a blank template on first load; add your own members, costs, meals, and deposits from the UI. Everything is saved to your browser's `localStorage`, and you can back it up anytime via **Reports → Export All Data** (keep that exported `.json` somewhere private, e.g. a personal cloud drive — not this repo).
+`data/seed.json` is only used the very first time the Firestore document doesn't exist yet — it's an empty template on purpose (no real names/amounts committed to this public repo).
+
+## ⚠️ Firestore security rules (do this once)
+
+The Firestore database was created in **test mode**, which only allows open read/write for 30 days and then locks everything out. Since this app has no login system (by design — anyone with the link can use it, meant for the mess members only), set a rule that stays open indefinitely:
+
+1. Go to the [Firebase Console](https://console.firebase.google.com) → your project → **Firestore Database → Rules**
+2. Replace the rules with:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /mess/{document=**} {
+         allow read, write: if true;
+       }
+     }
+   }
+   ```
+3. **Publish**
+
+This keeps the app's data readable/writable only through this specific `mess/data` document path, indefinitely — without it, the app stops syncing after 30 days.
+
+> Because there's no auth, anyone who finds the site URL and knows how to open browser dev tools could technically read or edit the data — same trust model as a shared spreadsheet link. Fine for a household mess; don't put anything more sensitive in it.
 
 ## Running locally
 
-No build step needed — it's plain HTML/CSS/JS. Because it uses `fetch()` for the seed file and ES modules, open it through a local server (not `file://`):
+No build step needed — it's plain HTML/CSS/JS talking to Firestore over the internet, so you do need an internet connection even locally. Serve the folder (not `file://`, since it uses ES modules):
 
 ```bash
 cd mess-hisab
@@ -62,14 +93,12 @@ node _devserver.cjs
 
 ## Backup workflow
 
+Firestore is the live source of truth now, but it's still worth an occasional backup:
+
 1. Open **Reports → Backup**.
 2. Click **Export All Data** (or **Export This Month**) to download a `.json` file.
-3. Commit that file into the repo's `data/` folder (via GitHub web UI, or `git add && git commit && git push`) so it's safely versioned.
-4. To restore on another device/browser, open **Reports → Backup → Import JSON** and pick the file.
-
-## Possible future upgrade (not built yet)
-
-A "Save to GitHub" button using the GitHub REST API + a personal access token could commit changes directly from the browser, so multiple members always see the same live data without manual export/import. Ask to add this as a phase 2 if useful.
+3. Keep it somewhere private (personal cloud drive, etc. — not this public repo).
+4. **Import JSON** on the Reports page restores from a backup file — this overwrites the live Firestore document for everyone, so use it deliberately.
 
 ## Folder structure
 
@@ -78,10 +107,11 @@ mess-hisab/
 ├── index.html
 ├── css/style.css
 ├── js/
-│   ├── store.js     data layer (load/save, summary calculations, export/import)
-│   ├── ui.js         small UI helpers (avatar colors, money format, modal, toast)
-│   ├── charts.js      Chart.js wrappers
-│   └── app.js         routing + view rendering + event handling
-├── data/seed.json    initial data (only used the very first time, before localStorage exists)
+│   ├── firebase-init.js   Firebase app + Firestore setup (config, offline persistence)
+│   ├── store.js            data layer (Firestore subscribe/save, summary calculations, export/import)
+│   ├── ui.js               small UI helpers (avatar colors, money format, modal, toast)
+│   ├── charts.js           Chart.js wrappers
+│   └── app.js              routing + view rendering + event handling
+├── data/seed.json         empty template, only used the very first time the Firestore doc doesn't exist
 └── README.md
 ```
