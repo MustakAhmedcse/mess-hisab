@@ -1,19 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
   "members": [],
-  "months": {
-    "2026-08": {
-      "costs": [],
-      "meals": [],
-      "deposits": {},
-      "rent": { "total": 0, "splitEqually": true }
-    },
-    "2026-09": {
-      "costs": [],
-      "meals": [],
-      "deposits": {},
-      "rent": { "total": 0, "splitEqually": true }
-    }
-  },
-  "settings": { "currentMonth": "2026-08", "theme": "light" }
+  "months": {},
+  "settings": { "currentMonth": "", "theme": "light" }
 }

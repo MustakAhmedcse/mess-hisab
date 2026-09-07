@@ -2,15 +2,34 @@
 
 Shared-house (mess) bazar, meal & expense tracker — free static web app hosted on **GitHub Pages**, with live data sync across every device via **Firebase Firestore** (also free, on the Spark plan).
 
+## The hisab it implements
+
+Two pools of money, calculated differently — this mirrors the mess's own spreadsheet:
+
+| | How it's split | Where it's entered |
+|---|---|---|
+| **Bazar cost** (groceries) | by **meals eaten** — `mealRate = totalBazar ÷ totalMeals` | Bazar Cost page, daily |
+| **Others cost** (internet, electricity, water, gas) | **equally per head** — `othersPerHead = extraCost ÷ members` | Others Cost page, as bills come |
+| **Rent + Bua** | fixed per member, not shared | Settlement page, once a month |
+
+```
+perHeadCost = (own meals × mealRate) + othersPerHead
+due         = perHeadCost − deposit          →  +ve owes the mess, −ve gets money back
+monthTotal  = due + own rent + own bua        →  what they actually pay at month end
+```
+
+A member can be marked **not in meal** (rent-only, like a roommate who doesn't eat from the mess) — they're excluded from the bazar/others split and only appear in the settlement with their rent.
+
 ## Features
 
-- **Members** — add/edit/deactivate mess members anytime
-- **Bazar & Costs** — log bazar purchases plus utility/rent/other costs, filterable by category
-- **Meals** — spreadsheet-style daily grid to log each member's meal count
-- **Dashboard** — stat cards, expense breakdown (doughnut chart), deposit-vs-cost (bar chart), per-member due/advance badges, recent activity feed
-- **Reports** — full monthly summary table, deposit & rent editor
-- **Live multi-device sync** — a phone, a laptop, anyone's browser: everyone sees the same data, updated the moment anyone changes anything (real-time, via Firestore)
-- **Export / Import** — download the whole database or a single month as JSON, for backups or moving data around
+- **Dashboard** — Total Bazar / Extra Cost / Total Cost / Total Meals, the live **meal rate** and **others per head**, and the full per-head table (deposit, meals, meal cost, others, per head cost, due) — the running hisab, updating as entries come in
+- **Bazar Cost** — daily grocery entries: date, who bought, amount, item details
+- **Others Cost** — internet / electricity / water / gas bills, typed and split equally
+- **Meals** — spreadsheet-style daily grid, one column per member, jumps to today
+- **Monthly Settlement** — deposits, each member's fixed rent & bua, and the final `meal + rent + bua = total` table for the month
+- **Members** — add/edit/deactivate, set default rent & bua, mark rent-only members
+- **Live multi-device sync** — phone, laptop, anyone's browser: everyone sees the same data, updated the moment anyone changes anything
+- **Export / Import** — download the whole database or a single month as JSON
 - **Light / Dark mode**, fully responsive (sidebar on desktop, bottom nav on mobile)
 
 ## How data sync works
@@ -27,22 +46,30 @@ This means the earlier "phone vs laptop" problem is solved: there is no longer a
 
 ```json
 {
-  "members": [ { "id": "m1", "name": "Oashiur", "active": true, "joinDate": "2026-06-01" } ],
+  "rev": 42,
+  "members": [
+    { "id": "m1", "name": "Oashiur", "active": true, "inMeal": true, "rent": 4400, "bua": 1100 }
+  ],
   "months": {
-    "2026-08": {
-      "costs": [ { "id": "c1", "date": "2026-08-02", "memberId": "m1", "category": "bazar", "amount": 2671, "details": "..." } ],
-      "meals": [ { "id": "me1", "date": "2026-08-01", "memberId": "m1", "count": 2 } ],
-      "deposits": { "m1": 2751 },
-      "rent": { "total": 0, "splitEqually": true }
+    "2026-09": {
+      "bazar":  [ { "id": "b1", "date": "2026-09-05", "memberId": "m1", "amount": 67, "details": "Tomato + Potol" } ],
+      "others": [ { "id": "o1", "type": "Internet", "date": "2026-09-01", "memberId": "m1", "amount": 600 } ],
+      "meals":  [ { "id": "me1", "date": "2026-09-01", "memberId": "m1", "count": 1 } ],
+      "deposits": { "m1": 2284 },
+      "fixed":    { "m1": { "rent": 4400, "bua": 1100 } }
     }
   },
-  "settings": { "currentMonth": "2026-08", "theme": "light" }
+  "settings": { "currentMonth": "2026-09", "theme": "light" }
 }
 ```
 
-Due/advance per member = `deposit − (mealRate × meals + rentShare)`, where `mealRate = totalCost / totalMeals` for that month.
+`fixed` snapshots each month's rent/bua so changing a member's rent later doesn't rewrite past months. `rev` is a counter bumped on every write — the app uses it to tell its own echo apart from a genuine update by another device (see below).
 
-`data/seed.json` is only used the very first time the Firestore document doesn't exist yet — it's an empty template on purpose (no real names/amounts committed to this public repo).
+`data/seed.json` is only used the very first time the Firestore document doesn't exist — it's an empty template on purpose (no real names/amounts committed to this public repo).
+
+### Concurrency note
+
+The whole document is written at once, so writes are debounced (250ms) and the app ignores snapshots that aren't newer than its own `rev`. That makes fast data entry safe (a burst of meal-cell edits becomes one write and nothing is lost). Two people editing *at the same second* from different devices still resolves last-write-wins at the document level — fine for a household mess, but don't expect merge semantics.
 
 ## ⚠️ Firestore security rules (do this once)
 
@@ -95,10 +122,10 @@ node _devserver.cjs
 
 Firestore is the live source of truth now, but it's still worth an occasional backup:
 
-1. Open **Reports → Backup**.
+1. Open **Members & Settings → Backup**.
 2. Click **Export All Data** (or **Export This Month**) to download a `.json` file.
 3. Keep it somewhere private (personal cloud drive, etc. — not this public repo).
-4. **Import JSON** on the Reports page restores from a backup file — this overwrites the live Firestore document for everyone, so use it deliberately.
+4. **Import JSON** restores from a backup file — this overwrites the live Firestore document for everyone, so use it deliberately.
 
 ## Folder structure
 
@@ -108,7 +135,7 @@ mess-hisab/
 ├── css/style.css
 ├── js/
 │   ├── firebase-init.js   Firebase app + Firestore setup (config, offline persistence)
-│   ├── store.js            data layer (Firestore subscribe/save, summary calculations, export/import)
+│   ├── store.js            data layer (Firestore sync, hisab calculations, export/import)
 │   ├── ui.js               small UI helpers (avatar colors, money format, modal, toast)
 │   ├── charts.js           Chart.js wrappers
 │   └── app.js              routing + view rendering + event handling

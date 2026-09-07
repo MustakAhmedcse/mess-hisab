@@ -11,9 +11,22 @@ export function initials(name) {
   return name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 }
 
+/** Whole-taka display, e.g. ৳1,107 */
 export function money(n) {
   const v = Math.round(Number(n) || 0);
   return `৳${v.toLocaleString('en-US')}`;
+}
+
+/** Two-decimal display for rates, e.g. ৳86.14 */
+export function money2(n) {
+  const v = Number(n) || 0;
+  return `৳${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Meal counts: 8 not 8.0, but 7.5 stays 7.5 */
+export function num(n) {
+  const v = Number(n) || 0;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
 export function openModal(innerHTML) {
