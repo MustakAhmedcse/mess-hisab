@@ -128,7 +128,9 @@ input, select { font-family: inherit; }
 }
 .topbar h1 { font-size: 21px; flex: 1; }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
-.only-mobile { display: none; }
+/* Collapses the sidebar to give wide tables more room (desktop only —
+   on mobile the bottom nav already handles navigation). */
+.app-shell.sidebar-collapsed .sidebar { display: none; }
 
 .month-select {
   background: var(--surface);
@@ -490,7 +492,7 @@ input.cell-input {
 /* ===== Responsive ===== */
 @media (max-width: 900px) {
   .sidebar { display: none; }
-  .only-mobile { display: inline-flex; }
+  .icon-btn.desktop-only { display: none; }
   .bottom-nav { display: flex; }
   .view-root { padding: 16px 16px 90px; }
   .topbar { padding: 14px 16px; }

@@ -162,6 +162,16 @@ function bindGlobalEvents() {
     render();
   };
   document.getElementById('addMonthBtn').onclick = () => openAddMonthModal();
+
+  const shell = document.querySelector('.app-shell');
+  const setSidebar = (collapsed) => {
+    shell.classList.toggle('sidebar-collapsed', collapsed);
+    try { localStorage.setItem('messHisabSidebar', collapsed ? 'collapsed' : 'open'); } catch (e) { /* private mode */ }
+  };
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('messHisabSidebar') === 'collapsed'; } catch (e) { /* private mode */ }
+  shell.classList.toggle('sidebar-collapsed', collapsed);
+  document.getElementById('menuToggle').onclick = () => setSidebar(!shell.classList.contains('sidebar-collapsed'));
 }
 
 function currentRoute() {
