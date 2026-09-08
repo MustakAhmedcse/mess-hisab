@@ -18,7 +18,12 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
-export const dbDocRef = doc(db, 'mess', 'data');
+
+// Local development writes to a separate document so testing can never touch
+// the mess's real hisab.
+const isLocal = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+export const dbDocRef = doc(db, 'mess', isLocal ? 'dev' : 'data');
+if (isLocal) console.info('Mess Hisab: using the dev document (mess/dev), not live data.');
 
 try {
   await enableIndexedDbPersistence(db);

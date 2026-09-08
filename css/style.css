@@ -532,6 +532,40 @@ input.cell-input {
 }
 .step-val.ghost { color: var(--text-muted); opacity: .55; }
 
+.day-nav {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 6px 8px; margin-bottom: 14px;
+}
+.day-current { font-weight: 700; font-size: 14px; }
+.btn[disabled] { opacity: .4; pointer-events: none; }
+
+/* Bulk backfill grid — meals get entered a week or two at a time */
+.mini-wrap { overflow-x: auto; margin: 10px 0 14px; }
+.mini-grid { display: flex; flex-direction: column; gap: 5px; min-width: min-content; }
+.mini-row { display: flex; align-items: center; gap: 5px; }
+.mini-head { font-size: 11px; color: var(--text-muted); font-weight: 700; }
+.mini-date { width: 74px; flex-shrink: 0; font-size: 12.5px; color: var(--text-muted); }
+.mini-cell-head { width: 48px; text-align: center; flex-shrink: 0; }
+.mini-cell {
+  width: 48px; height: 40px; flex-shrink: 0;
+  border-radius: 9px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font-size: 15px; font-weight: 700; font-family: inherit;
+  cursor: pointer; touch-action: manipulation;
+}
+.mini-cell:active { transform: scale(.94); }
+.mini-cell.blank { color: var(--text-muted); opacity: .45; border-style: dashed; }
+.mini-cell.zero { color: var(--text-muted); opacity: .6; }
+
+/* at-a-glance month view */
+.mini-grid.glance .mini-row { padding: 2px 4px; border-radius: 9px; }
+.mini-grid.glance .mini-row.is-today { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.mini-grid.glance .mini-row.not-filled .mini-date { color: var(--warning); }
+.mini-grid.glance .mini-row.future .mini-date { opacity: .65; font-style: italic; }
+.mini-grid.glance .mini-foot { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 7px; }
+.mini-cell-head.strong { color: var(--text); font-weight: 800; font-size: 13px; }
+.mini-date b { color: var(--primary); }
+
 .btn-block { width: 100%; justify-content: center; padding: 14px; font-size: 15px; }
 .btn-sm { padding: 7px 12px; font-size: 12.5px; }
 .btn-big { flex: 1; justify-content: center; padding: 16px; font-size: 15px; }

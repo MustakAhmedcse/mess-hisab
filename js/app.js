@@ -32,7 +32,9 @@ const ROUTE_TITLES = {
 const BILL_TYPES = ['কারেন্ট', 'নেট', 'পানি', 'গ্যাস', 'অন্যান্য'];
 
 let viewMonth = null;       // the month this device is looking at
+let viewDay = null;         // the day being edited on আজ
 let mealDraft = null;       // { date, counts: {memberId: n} } — unsaved stepper state
+let backfillDraft = null;   // { month, counts: {date: {memberId: n}} } — unsaved bulk entry
 let entryBusy = false;      // true while someone is mid-entry; blocks disruptive re-renders
 
 /* ---------------- boot ---------------- */
@@ -52,7 +54,7 @@ function init() {
       if (firstLoad) {
         firstLoad = false;
         bindChrome();
-        window.addEventListener('hashchange', () => { mealDraft = null; render(); });
+        window.addEventListener('hashchange', () => { mealDraft = null; backfillDraft = null; render(); });
         if (!location.hash) location.hash = '#/today';
       }
       requestRender();
@@ -88,6 +90,8 @@ function setMonth(m) {
   viewMonth = m;
   LS.month = m;
   mealDraft = null;
+  backfillDraft = null;
+  if (viewDay && monthOf(viewDay) !== m) viewDay = null;
   render();
 }
 
@@ -267,7 +271,6 @@ function renderWhoAmI(root) {
 function renderToday(root) {
   const monthKey = currentMonth();
   const today = todayISO();
-  const day = monthOf(today) === monthKey ? today : `${monthKey}-01`;
   const month = peekMonth(DB, monthKey);
   const eaters = mealMembers(DB);
   const mgr = managerOn(DB, today);
@@ -275,10 +278,20 @@ function renderToday(root) {
   const s = computeSummary(DB, monthKey);
   const mine = s.rows.find((r) => me() && r.member.id === me().id);
 
+  // The day being edited is its own state — deriving it from "today" is what
+  // made the ‹ আগের দিন button and the missing-day chips do nothing. Future
+  // days are allowed: anyone can fill their meals in ahead of time.
+  if (!viewDay || monthOf(viewDay) !== monthKey) {
+    viewDay = monthOf(today) === monthKey ? today : `${monthKey}-01`;
+  }
+  const day = viewDay;
+  const monthDays = daysInMonth(monthKey);
+  const lastDay = monthDays[monthDays.length - 1];
+
   if (!mealDraft || mealDraft.date !== day) mealDraft = { date: day, counts: proposalFor(month, eaters, day) };
   const confirmed = dayConfirmed(month, day);
 
-  const gaps = missingDays(month, monthKey).slice(0, 6);
+  const gaps = missingDays(month, monthKey);
 
   root.innerHTML = `
     <div class="duty-strip">
@@ -299,40 +312,40 @@ function renderToday(root) {
 
     <div class="card">
       <div class="day-head">
-        <h3>${day === today ? 'আজকের meal' : `${dayLabel(day)} — meal`}</h3>
-        <div class="day-nav">
-          <button class="btn btn-ghost btn-sm" id="prevDay">‹ আগের দিন</button>
-          ${confirmed ? '<span class="badge badge-success">বসানো হয়েছে</span>' : '<span class="badge badge-warn">বসানো হয়নি</span>'}
-        </div>
+        <h3>${day === today ? 'আজকের meal' : `${fullDayLabel(day)} — meal`}</h3>
+        ${confirmed ? '<span class="badge badge-success">বসানো হয়েছে</span>' : '<span class="badge badge-warn">বসানো হয়নি</span>'}
+      </div>
+      <div class="day-nav">
+        <button class="btn btn-ghost btn-sm" id="prevDay" ${day <= monthDays[0] ? 'disabled' : ''}>‹ আগের</button>
+        <span class="day-current">${fullDayLabel(day)}${day > today ? ' <span class="tag tag-sm">আগাম</span>' : ''}</span>
+        <button class="btn btn-ghost btn-sm" id="nextDay" ${day >= lastDay ? 'disabled' : ''}>পরের ›</button>
       </div>
       ${eaters.length ? `
         <div class="stepper-list">
           ${eaters.map((m) => stepperRow(m, mealDraft.counts[m.id] || 0, confirmed)).join('')}
         </div>
         <button class="btn btn-primary btn-block" id="saveMeals">✓ সেভ করো</button>
-        ${confirmed ? '' : '<p class="hint center">সংখ্যাগুলো গতকালের মতো ধরে বসানো — ঠিক থাকলে শুধু সেভ চাপো।</p>'}
+        ${confirmed ? '' : '<p class="hint center">সংখ্যাগুলো আগের দিনের মতো ধরে বসানো — ঠিক থাকলে শুধু সেভ চাপো।</p>'}
       ` : emptyMsg('কোনো meal member নেই।')}
     </div>
 
-    ${gaps.length ? `
-    <div class="card warn-card">
-      <h3>⚠️ ${gaps.length}${gaps.length === 6 ? '+' : ''} দিন বসানো হয়নি</h3>
-      <div class="chip-filter">${gaps.map((d) => `<button class="chip" data-goday="${d}">${dayLabel(d)}</button>`).join('')}</div>
-      <p class="hint">meal কম বসলে meal rate ভুল হয়ে সবার হিসাব নড়ে যায়।</p>
-    </div>` : ''}
+    ${gaps.length && eaters.length ? backfillCard(month, eaters, gaps) : ''}
 
     <div class="card">
       <h3>খরচ যোগ করো</h3>
       <div class="big-actions">
         <button class="btn btn-primary btn-big" id="addBazar">🛒 বাজার</button>
-        <button class="btn btn-ghost btn-big" id="addBill">💡 বিল</button>
+        <button class="btn btn-ghost btn-big" id="addBill">💡 অন্যান্য</button>
       </div>
-    </div>`;
+    </div>
+
+    <a class="btn btn-ghost btn-block" href="#/grid">📅 পুরো মাসের meal দেখো</a>`;
 
   bindSteppers(root, day);
+  bindBackfill(root, eaters);
   root.querySelector('#saveMeals') && (root.querySelector('#saveMeals').onclick = () => saveDay(day));
-  root.querySelector('#prevDay').onclick = () => { mealDraft = null; goDay(addDays(day, -1)); };
-  root.querySelectorAll('[data-goday]').forEach((b) => (b.onclick = () => { mealDraft = null; goDay(b.dataset.goday); }));
+  root.querySelector('#prevDay').onclick = () => { if (day > monthDays[0]) goDay(addDays(day, -1)); };
+  root.querySelector('#nextDay').onclick = () => { if (day < lastDay) goDay(addDays(day, 1)); };
   root.querySelector('#dutyBtn').onclick = openDutyModal;
   root.querySelector('#addBazar').onclick = () => openCostModal({ kind: 'bazar', date: day });
   root.querySelector('#addBill').onclick = () => openCostModal({ kind: 'bill', date: day });
@@ -340,9 +353,118 @@ function renderToday(root) {
 
 function goDay(dateISO) {
   const mk = monthOf(dateISO);
+  mealDraft = null;
+  backfillDraft = null;
+  viewDay = dateISO;
   if (mk !== currentMonth()) setMonth(mk);
-  mealDraft = { date: dateISO, counts: proposalFor(peekMonth(DB, mk), mealMembers(DB), dateISO) };
-  render();
+  else render();
+}
+
+function lastDayOfMonth(monthKey, today) {
+  const all = daysInMonth(monthKey);
+  const capped = all.filter((d) => d <= today);
+  return (capped.length ? capped : all)[Math.max(0, (capped.length ? capped : all).length - 1)];
+}
+
+function fullDayLabel(dateISO) {
+  const [, m, d] = dateISO.split('-');
+  const months = ['', 'জানু', 'ফেব', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্ট', 'অক্টো', 'নভে', 'ডিসে'];
+  return `${Number(d)} ${months[Number(m)]} · ${dayLabel(dateISO).split('· ')[1]}`;
+}
+
+/* ---------- bulk backfill: meals get entered every 7-15 days, not daily ---------- */
+
+function backfillCard(month, eaters, gaps) {
+  if (!backfillDraft || backfillDraft.month !== currentMonth()) {
+    backfillDraft = { month: currentMonth(), counts: {}, filled: false };
+  }
+  const d = backfillDraft;
+
+  return `
+    <div class="card warn-card">
+      <div class="day-head">
+        <h3>⚠️ ${gaps.length} দিন বসানো হয়নি</h3>
+        <button class="btn btn-ghost btn-sm" id="fillAll">সব দিন আগের মতো ভরো</button>
+      </div>
+      <p class="hint">সাত-পনেরো দিন পর একসাথে বসাতে এখানেই সব দিন পাবে। ঘরে চাপলে সংখ্যা বদলায় (০ → ০.৫ → ১ → ১.৫ → ২)।</p>
+      <div class="mini-wrap">
+        <div class="mini-grid">
+          <div class="mini-row mini-head">
+            <span class="mini-date">তারিখ</span>
+            ${eaters.map((m) => `<span class="mini-cell-head">${esc(m.name.slice(0, 6))}</span>`).join('')}
+          </div>
+          ${gaps.map((date) => `
+            <div class="mini-row" data-date="${date}">
+              <span class="mini-date">${esc(dayLabel(date))}</span>
+              ${eaters.map((m) => {
+                const v = d.counts[date] ? d.counts[date][m.id] : undefined;
+                return `<button class="mini-cell ${v === undefined ? 'blank' : ''}" data-date="${date}" data-member="${m.id}">${v === undefined ? '·' : num(v)}</button>`;
+              }).join('')}
+            </div>`).join('')}
+        </div>
+      </div>
+      <button class="btn btn-primary btn-block" id="saveBackfill">✓ এই দিনগুলো সেভ করো</button>
+    </div>`;
+}
+
+function bindBackfill(root, eaters) {
+  const fill = root.querySelector('#fillAll');
+  if (!fill) return;
+  const month = peekMonth(DB, currentMonth());
+
+  fill.onclick = () => {
+    entryBusy = true;
+    root.querySelectorAll('.mini-row[data-date]').forEach((row) => {
+      const date = row.dataset.date;
+      const proposal = proposalFor(month, eaters, date);
+      backfillDraft.counts[date] = { ...proposal };
+      row.querySelectorAll('.mini-cell').forEach((c) => {
+        c.textContent = num(proposal[c.dataset.member] || 0);
+        c.classList.remove('blank');
+      });
+    });
+    entryBusy = false;
+    toast('সব দিন ভরা হয়েছে — দরকারে ঘরে চেপে বদলাও');
+  };
+
+  root.querySelectorAll('.mini-cell').forEach((cell) => (cell.onclick = () => {
+    entryBusy = true;
+    const { date, member } = cell.dataset;
+    if (!backfillDraft.counts[date]) backfillDraft.counts[date] = {};
+    const cur = backfillDraft.counts[date][member];
+    const cycle = [0, 0.5, 1, 1.5, 2];
+    const next = cur === undefined ? 1 : cycle[(cycle.indexOf(cur) + 1) % cycle.length];
+    backfillDraft.counts[date][member] = next;
+    cell.textContent = num(next);
+    cell.classList.remove('blank');
+  }));
+
+  root.querySelector('#saveBackfill').onclick = () => {
+    const dates = Object.keys(backfillDraft.counts);
+    if (!dates.length) return toast('আগে দিনগুলো ভরো', 'error');
+    const counts = JSON.parse(JSON.stringify(backfillDraft.counts));
+    // Days can straddle a month boundary, so write each into its own month.
+    const byMonth = {};
+    dates.forEach((d) => { (byMonth[monthOf(d)] = byMonth[monthOf(d)] || []).push(d); });
+    Object.entries(byMonth).forEach(([mk, ds]) => {
+      mutate((m) => {
+        ds.forEach((date) => {
+          eaters.forEach((mem) => {
+            const v = Number(counts[date][mem.id] || 0);
+            const e = m.meals.find((x) => x.date === date && x.memberId === mem.id);
+            if (e) e.count = v;
+            else m.meals.push({ id: uid('meal'), date, memberId: mem.id, count: v });
+          });
+          m.mealDays[date] = true;
+        });
+      }, mk);
+    });
+    entryBusy = false;
+    backfillDraft = null;
+    mealDraft = null;
+    render();
+    toast(`${dates.length} দিন সেভ হয়েছে ✓`);
+  };
 }
 
 function dutySubtitle(today) {
@@ -435,12 +557,12 @@ function renderKhoroch(root) {
     <div class="pool-row">
       <div class="pool-card pool-bazar">
         <div class="pool-icon">🛒</div>
-        <div><div class="pool-label">বাজার</div><div class="pool-value">${money(s.totalBazar)}</div>
+        <div><div class="pool-label">বাজার খরচ</div><div class="pool-value">${money(s.totalBazar)}</div>
           <div class="pool-rule">meal অনুযায়ী ভাগ${s.rateReady ? ` · ${money2(s.mealRate)}/meal` : ''}</div></div>
       </div>
       <div class="pool-card pool-bill">
         <div class="pool-icon">💡</div>
-        <div><div class="pool-label">বিল</div><div class="pool-value">${money(s.totalBills)}</div>
+        <div><div class="pool-label">অন্যান্য খরচ</div><div class="pool-value">${money(s.totalBills)}</div>
           <div class="pool-rule">সমান ভাগ (${s.eaters.length} জন)${s.eaters.length ? ` · ${money2(s.billsPerHead)}/জন` : ''}</div></div>
       </div>
     </div>
@@ -449,7 +571,7 @@ function renderKhoroch(root) {
       <div class="chip-filter" id="kindFilter">
         <button class="chip active" data-kind="all">সব</button>
         <button class="chip" data-kind="bazar">🛒 বাজার</button>
-        <button class="chip" data-kind="bill">💡 বিল</button>
+        <button class="chip" data-kind="bill">💡 অন্যান্য</button>
       </div>
     </div>
 
@@ -459,7 +581,7 @@ function renderKhoroch(root) {
 
     <div class="fab-row">
       <button class="fab fab-primary" id="fabBazar">🛒 বাজার</button>
-      <button class="fab" id="fabBill">💡 বিল</button>
+      <button class="fab" id="fabBill">💡 অন্যান্য</button>
     </div>`;
 
   root.querySelectorAll('#kindFilter .chip').forEach((c) => (c.onclick = () => {
@@ -481,7 +603,7 @@ function entryCard(e) {
       <div class="entry-main">
         <div class="entry-top">
           <span class="entry-amount">${money(e.amount)}</span>
-          <span class="tag">${e.kind === 'bazar' ? '🛒 বাজার' : '💡 ' + esc(e.type || 'বিল')}</span>
+          <span class="tag">${e.kind === 'bazar' ? '🛒 বাজার' : '💡 ' + esc(e.type || 'অন্যান্য')}</span>
         </div>
         <div class="entry-sub">${esc(dayLabel(e.date))} · ${esc(memberName(DB, e.memberId))} এর টাকায়${e.details ? ' · ' + esc(e.details) : ''}</div>
       </div>
@@ -501,14 +623,14 @@ function openCostModal({ kind, id, date }) {
   const d = editing?.date || date || defaultDate(monthKey);
 
   openModal(`
-    <h3>${editing ? 'খরচ ঠিক করো' : (kind === 'bazar' ? '🛒 বাজার যোগ করো' : '💡 বিল যোগ করো')}</h3>
+    <h3>${editing ? 'খরচ ঠিক করো' : (kind === 'bazar' ? '🛒 বাজার খরচ যোগ করো' : '💡 অন্যান্য খরচ যোগ করো')}</h3>
     <form id="costForm">
       <label>টাকা</label>
       <input type="number" inputmode="decimal" step="0.01" min="0" name="amount" required
              value="${editing?.amount ?? ''}" placeholder="0" class="big-input" autofocus>
 
       ${kind === 'bill' ? `
-        <label>কীসের বিল</label>
+        <label>কীসের খরচ</label>
         <div class="chip-filter type-chips">
           ${BILL_TYPES.map((t) => `<button type="button" class="chip type-chip ${(editing?.type || BILL_TYPES[0]) === t ? 'active' : ''}" data-type="${t}">${t}</button>`).join('')}
         </div>
@@ -609,12 +731,12 @@ function renderHisab(root) {
 
   root.innerHTML = `
     <div class="rate-row">
-      <div class="rate-card"><div class="rate-label">Meal Rate</div>
+      <div class="rate-card"><div class="rate-label">Meal রেট</div>
         <div class="rate-value">${s.rateReady ? money2(s.mealRate) : '—'}</div>
         <div class="rate-formula">বাজার ${money(s.totalBazar)} ÷ ${num(s.totalMeals)} meal</div></div>
-      <div class="rate-card"><div class="rate-label">বিল / জন</div>
+      <div class="rate-card"><div class="rate-label">অন্যান্য খরচ / জন</div>
         <div class="rate-value">${s.eaters.length ? money2(s.billsPerHead) : '—'}</div>
-        <div class="rate-formula">বিল ${money(s.totalBills)} ÷ ${s.eaters.length} জন</div></div>
+        <div class="rate-formula">অন্যান্য ${money(s.totalBills)} ÷ ${s.eaters.length} জন</div></div>
     </div>
 
     <div class="card">
@@ -654,7 +776,7 @@ function renderHisab(root) {
       </div>
       <div class="table-wrap">
         <table class="table form-table">
-          <thead><tr><th>Member</th><th class="num">ভাড়া</th><th class="num">বুয়া</th><th class="num">মোট</th><th>দিয়েছে</th></tr></thead>
+          <thead><tr><th>নাম</th><th class="num">ভাড়া</th><th class="num">বুয়া</th><th class="num">মোট</th><th>দিয়েছে</th></tr></thead>
           <tbody>
             ${activeMembers(DB).map((m) => {
               const f = getFixed(DB, monthKey, m);
@@ -705,7 +827,7 @@ function hisabCard(r, s) {
       </summary>
       <div class="h-body">
         <div class="h-line"><span>${num(r.meals)} meal × ${s.rateReady ? money2(s.mealRate) : '—'}</span><b>${money(r.mealCost)}</b></div>
-        <div class="h-line"><span>বিলের ভাগ</span><b>${money(r.billShare)}</b></div>
+        <div class="h-line"><span>অন্যান্য খরচের ভাগ</span><b>${money(r.billShare)}</b></div>
         <div class="h-line total"><span>তার ভাগ</span><b>${money(r.perHeadCost)}</b></div>
         <div class="h-line"><span>নিজে দিয়েছে</span><b>− ${money(r.paid)}</b></div>
         <div class="h-line total"><span>${r.due > 0 ? 'দেবে' : 'পাবে'}</span><b>${money(Math.abs(r.due))}</b></div>
@@ -725,41 +847,60 @@ function renderGrid(root) {
   const days = daysInMonth(monthKey);
   const today = todayISO();
 
+  const filled = days.filter((d) => dayConfirmed(month, d)).length;
+  const ahead = days.filter((d) => d > today && dayConfirmed(month, d)).length;
+
   root.innerHTML = `
     <div class="toolbar">
-      <div class="inline-total">মোট meal <b>${num(allMealTotal(month))}</b></div>
+      <div class="inline-total">মোট meal <b>${num(allMealTotal(month))}</b> · ${filled}/${days.length} দিন বসানো${ahead ? ` · ${ahead} দিন আগাম` : ''}</div>
       <a class="btn btn-ghost btn-sm" href="#/today">← আজ</a>
     </div>
-    <div class="table-wrap">
-      <table class="table meal-table">
-        <thead><tr><th>তারিখ</th>${eaters.map((m) => `<th>${esc(m.name)}</th>`).join('')}<th class="num">মোট</th></tr></thead>
-        <tbody>
+
+    <div class="card">
+      <div class="mini-wrap">
+        <div class="mini-grid glance">
+          <div class="mini-row mini-head">
+            <span class="mini-date">তারিখ</span>
+            ${eaters.map((m) => `<span class="mini-cell-head">${esc(m.name.slice(0, 6))}</span>`).join('')}
+            <span class="mini-cell-head">মোট</span>
+          </div>
           ${days.map((d) => {
             const conf = dayConfirmed(month, d);
             const tot = eaters.reduce((s, m) => s + mealFor(month, d, m.id), 0);
-            return `<tr class="${d === today ? 'is-today' : ''} ${conf ? '' : 'unconfirmed'}">
-              <td class="muted">${dayLabel(d)}${conf ? '' : ' <span class="dot-warn">•</span>'}</td>
-              ${eaters.map((m) => `<td><input type="number" inputmode="decimal" step="0.5" min="0" class="meal-input"
-                 data-date="${d}" data-member="${m.id}" value="${conf ? (mealFor(month, d, m.id) || '') : ''}"></td>`).join('')}
-              <td class="num">${conf ? num(tot) : ''}</td>
-            </tr>`;
+            const cls = [d === today ? 'is-today' : '', !conf ? 'not-filled' : '', d > today ? 'future' : ''].join(' ');
+            return `<div class="mini-row ${cls}" data-date="${d}">
+              <span class="mini-date">${esc(dayLabel(d))}${d === today ? ' <b>·আজ</b>' : ''}</span>
+              ${eaters.map((m) => {
+                const v = mealFor(month, d, m.id);
+                return `<button class="mini-cell ${conf ? (v ? '' : 'zero') : 'blank'}" data-date="${d}" data-member="${m.id}">${conf ? num(v) : '·'}</button>`;
+              }).join('')}
+              <span class="mini-cell-head strong">${conf ? num(tot) : '—'}</span>
+            </div>`;
           }).join('')}
-        </tbody>
-        <tfoot><tr><td>মোট</td>${eaters.map((m) => `<td class="num">${num(memberMealTotal(month, m.id))}</td>`).join('')}<td class="num">${num(allMealTotal(month))}</td></tr></tfoot>
-      </table>
-    </div>
-    <p class="hint">• চিহ্ন মানে ওই দিন কেউ meal বসায়নি। কোনো ঘর বদলালে ওই দিনটা বসানো হয়েছে ধরে নেওয়া হবে।</p>`;
+          <div class="mini-row mini-foot">
+            <span class="mini-date">মোট</span>
+            ${eaters.map((m) => `<span class="mini-cell-head strong">${num(memberMealTotal(month, m.id))}</span>`).join('')}
+            <span class="mini-cell-head strong">${num(allMealTotal(month))}</span>
+          </div>
+        </div>
+      </div>
+      <p class="hint">ঘরে চাপলে সংখ্যা বদলায় (০ → ০.৫ → ১ → ১.৫ → ২)। <b>·</b> মানে ওই দিন কেউ বসায়নি। আগামী দিনের meal-ও আগে থেকে বসিয়ে রাখা যায়।</p>
+    </div>`;
 
-  root.querySelectorAll('.meal-input').forEach((input) => (input.onchange = () => {
-    const { date, member } = input.dataset;
-    const v = input.value === '' ? 0 : Number(input.value);
+  root.querySelectorAll('.mini-cell').forEach((cell) => (cell.onclick = () => {
+    entryBusy = true;
+    const { date, member } = cell.dataset;
+    const cycle = [0, 0.5, 1, 1.5, 2];
+    const cur = dayConfirmed(peekMonth(DB, monthOf(date)), date) ? mealFor(peekMonth(DB, monthOf(date)), date, member) : undefined;
+    const next = cur === undefined ? 1 : cycle[(cycle.indexOf(cur) + 1 + cycle.length) % cycle.length];
     mutate((m) => {
       const e = m.meals.find((x) => x.date === date && x.memberId === member);
-      if (e) e.count = v;
-      else m.meals.push({ id: uid('meal'), date, memberId: member, count: v });
+      if (e) e.count = next;
+      else m.meals.push({ id: uid('meal'), date, memberId: member, count: next });
       m.mealDays[date] = true;
     }, monthOf(date));
-    requestRender();
+    entryBusy = false;
+    render();
   }));
 }
 
@@ -769,10 +910,10 @@ function renderMore(root) {
   const meNow = me();
   root.innerHTML = `
     <div class="card">
-      <div class="toolbar"><h3>👥 Members</h3><button class="btn btn-primary btn-sm" id="addMember">+ যোগ করো</button></div>
+      <div class="toolbar"><h3>👥 সদস্য</h3><button class="btn btn-primary btn-sm" id="addMember">+ যোগ করো</button></div>
       <div class="table-wrap">
         <table class="table form-table">
-          <thead><tr><th>Member</th><th>Meal</th><th class="num">ভাড়া</th><th class="num">বুয়া</th><th></th></tr></thead>
+          <thead><tr><th>নাম</th><th>Meal</th><th class="num">ভাড়া</th><th class="num">বুয়া</th><th></th></tr></thead>
           <tbody>
             ${DB.members.map((m) => `<tr class="${m.active ? '' : 'row-off'}">
               <td>${nameCell(m.name, m.active ? '' : '<span class="tag tag-sm">বন্ধ</span>')}</td>
@@ -857,13 +998,13 @@ function renderMore(root) {
 function openMemberModal(id) {
   const editing = id ? memberById(DB, id) : null;
   openModal(`
-    <h3>${editing ? 'Member ঠিক করো' : 'নতুন member'}</h3>
+    <h3>${editing ? 'সদস্য ঠিক করো' : 'নতুন সদস্য'}</h3>
     <form id="memberForm">
       <label>নাম</label>
       <input name="name" required value="${esc(editing?.name || '')}" placeholder="যেমন: Oashiur" autofocus>
       <label class="check-row">
         <input type="checkbox" name="inMeal" ${editing?.inMeal === false ? '' : 'checked'}>
-        <span>Meal এ আছে (বাজার ও বিলের ভাগ দেবে)</span>
+        <span>Meal এ আছে (বাজার ও অন্যান্য খরচের ভাগ দেবে)</span>
       </label>
       <label>মাসিক ভাড়া</label>
       <input type="number" inputmode="numeric" min="0" name="rent" value="${editing?.rent ?? 0}">
