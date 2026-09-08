@@ -30,12 +30,11 @@ const ROUTE_TITLES = {
 };
 
 const BILL_TYPES = ['কারেন্ট', 'নেট', 'পানি', 'গ্যাস', 'অন্যান্য'];
-const MAX_MEAL = 10;
+const MAX_MEAL = 5;
 
 let viewMonth = null;       // the month this device is looking at
 let viewDay = null;         // the day being edited on আজ
 let mealDraft = null;       // { date, counts: {memberId: n} } — unsaved stepper state
-let backfillDraft = null;   // { month, counts: {date: {memberId: n}} } — unsaved bulk entry
 let entryBusy = false;      // true while someone is mid-entry; blocks disruptive re-renders
 
 /* ---------------- boot ---------------- */
@@ -55,7 +54,7 @@ function init() {
       if (firstLoad) {
         firstLoad = false;
         bindChrome();
-        window.addEventListener('hashchange', () => { mealDraft = null; backfillDraft = null; render(); });
+        window.addEventListener('hashchange', () => { mealDraft = null; render(); });
         if (!location.hash) location.hash = '#/today';
       }
       requestRender();
@@ -91,7 +90,6 @@ function setMonth(m) {
   viewMonth = m;
   LS.month = m;
   mealDraft = null;
-  backfillDraft = null;
   if (viewDay && monthOf(viewDay) !== m) viewDay = null;
   render();
 }
@@ -249,7 +247,7 @@ function openCellEditor(anchor, label, value, onPick) {
       <button class="step-btn" data-d="1">+</button>
     </div>
     <div class="cell-pop-quick">
-      ${[0, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10].map((n) => `<button class="chip" data-set="${n}">${num(n)}</button>`).join('')}
+      ${[0, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5].map((n) => `<button class="chip" data-set="${n}">${num(n)}</button>`).join('')}
     </div>
     <button class="btn btn-primary btn-block btn-sm" data-done>ঠিক আছে</button>`;
   document.body.appendChild(pop);
@@ -381,6 +379,13 @@ function renderToday(root) {
       ` : emptyMsg('কোনো meal member নেই।')}
     </div>
 
+    ${eaters.length ? `
+    <div class="card">
+      <h3>${monthLabel(monthKey)} — পুরো মাস</h3>
+      ${mealMatrix(month, eaters, monthKey, day)}
+      <p class="hint">উপরের তারিখে চাপলে ওই দিনটা সিলেক্ট হয় (উপরের − / + তখন ওই দিনের)। ঘরে চাপলে সরাসরি ওই জনের সংখ্যা বদলানো যায়।</p>
+    </div>` : ''}
+
     ${gaps.length && eaters.length ? backfillCard(month, eaters, gaps) : ''}
 
     <div class="card">
@@ -389,12 +394,11 @@ function renderToday(root) {
         <button class="btn btn-primary btn-big" id="addBazar">🛒 বাজার</button>
         <button class="btn btn-ghost btn-big" id="addBill">💡 অন্যান্য</button>
       </div>
-    </div>
-
-    <a class="btn btn-ghost btn-block" href="#/grid">📅 পুরো মাসের meal দেখো</a>`;
+    </div>`;
 
   bindSteppers(root, day);
-  bindBackfill(root, eaters);
+  bindMatrix(root, eaters);
+  bindBackfill(root, eaters, gaps);
   root.querySelector('#saveMeals') && (root.querySelector('#saveMeals').onclick = () => saveDay(day));
   root.querySelector('#prevDay').onclick = () => { if (day > monthDays[0]) goDay(addDays(day, -1)); };
   root.querySelector('#nextDay').onclick = () => { if (day < lastDay) goDay(addDays(day, 1)); };
@@ -406,7 +410,6 @@ function renderToday(root) {
 function goDay(dateISO) {
   const mk = monthOf(dateISO);
   mealDraft = null;
-  backfillDraft = null;
   viewDay = dateISO;
   if (mk !== currentMonth()) setMonth(mk);
   else render();
@@ -424,85 +427,129 @@ function fullDayLabel(dateISO) {
   return `${Number(d)} ${months[Number(m)]} · ${dayLabel(dateISO).split('· ')[1]}`;
 }
 
+/**
+ * Members down, days across — the whole month at a glance, with the day you're
+ * editing highlighted. Tapping a day header moves the steppers to that day;
+ * tapping a cell opens the − / + editor for that one person-day.
+ */
+function mealMatrix(month, eaters, monthKey, selectedDay) {
+  const today = todayISO();
+  const days = daysInMonth(monthKey);
+
+  return `
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th class="mx-name">নাম</th>
+            ${days.map((d) => `
+              <th class="mx-day ${d === selectedDay ? 'is-sel' : ''} ${d === today ? 'is-today' : ''} ${dayConfirmed(month, d) ? '' : 'not-filled'}"
+                  data-day="${d}">
+                <b>${Number(d.slice(8))}</b><span>${esc(dayLabel(d).split('· ')[1] || '')}</span>
+              </th>`).join('')}
+            <th class="mx-total">মোট</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${eaters.map((m) => `
+            <tr>
+              <td class="mx-name">${esc(m.name)}</td>
+              ${days.map((d) => {
+                const conf = dayConfirmed(month, d);
+                const v = mealFor(month, d, m.id);
+                return `<td class="mx-cell ${d === selectedDay ? 'is-sel' : ''} ${conf ? (v ? '' : 'zero') : 'blank'}"
+                            data-date="${d}" data-member="${m.id}">${conf ? num(v) : '·'}</td>`;
+              }).join('')}
+              <td class="mx-total">${num(memberMealTotal(month, m.id))}</td>
+            </tr>`).join('')}
+          <tr class="mx-foot">
+            <td class="mx-name">মোট</td>
+            ${days.map((d) => {
+              const conf = dayConfirmed(month, d);
+              const t = eaters.reduce((s, m) => s + mealFor(month, d, m.id), 0);
+              return `<td class="${d === selectedDay ? 'is-sel' : ''}">${conf ? num(t) : '·'}</td>`;
+            }).join('')}
+            <td class="mx-total">${num(allMealTotal(month))}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function bindMatrix(root, eaters) {
+  root.querySelectorAll('.mx-day').forEach((th) => (th.onclick = () => goDay(th.dataset.day)));
+
+  root.querySelectorAll('.mx-cell').forEach((cell) => (cell.onclick = (ev) => {
+    ev.stopPropagation();
+    const { date, member } = cell.dataset;
+    const mk = monthOf(date);
+    openCellEditor(cell, `${dayLabel(date)} · ${memberName(DB, member)}`, mealFor(peekMonth(DB, mk), date, member), (v) => {
+      mutate((m) => {
+        const e = m.meals.find((x) => x.date === date && x.memberId === member);
+        if (e) e.count = v;
+        else m.meals.push({ id: uid('meal'), date, memberId: member, count: v });
+        m.mealDays[date] = true;
+      }, mk);
+
+      // Update in place — a re-render would close the editor under the finger.
+      const live = peekMonth(DB, mk);
+      cell.textContent = num(v);
+      cell.classList.remove('blank');
+      cell.classList.toggle('zero', !v);
+      const table = cell.closest('.matrix');
+      const col = [...cell.parentElement.children].indexOf(cell);
+      const row = cell.closest('tr');
+      row.querySelector('.mx-total').textContent = num(memberMealTotal(live, member));
+      const foot = table.querySelector('.mx-foot');
+      foot.children[col].textContent = num(eaters.reduce((s, m) => s + mealFor(live, date, m.id), 0));
+      foot.querySelector('.mx-total').textContent = num(allMealTotal(live));
+      table.querySelectorAll(`.mx-day[data-day="${date}"]`).forEach((th) => th.classList.remove('not-filled'));
+    });
+  }));
+
+  // keep the selected day in view without yanking the page around
+  const sel = root.querySelector('.mx-day.is-sel');
+  if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+
 /* ---------- bulk backfill: meals get entered every 7-15 days, not daily ---------- */
 
+/**
+ * Meals get entered a week or two at a time, so the common case is "fill the
+ * days I missed with the usual numbers". That is one button — the matrix above
+ * is where any of it gets corrected, so there is no second grid here.
+ */
 function backfillCard(month, eaters, gaps) {
-  if (!backfillDraft || backfillDraft.month !== currentMonth()) {
-    backfillDraft = { month: currentMonth(), counts: {}, filled: false };
-  }
-  const d = backfillDraft;
-
+  const shown = gaps.slice(0, 12);
   return `
     <div class="card warn-card">
       <div class="day-head">
         <h3>⚠️ ${gaps.length} দিন বসানো হয়নি</h3>
-        <button class="btn btn-ghost btn-sm" id="fillAll">সব দিন আগের মতো ভরো</button>
+        <button class="btn btn-primary btn-sm" id="fillAll">সব দিন আগের মতো ভরো</button>
       </div>
-      <p class="hint">সাত-পনেরো দিন পর একসাথে বসাতে এখানেই সব দিন পাবে। যেকোনো ঘরে চাপলে − / + দিয়ে সংখ্যা বসানো যাবে।</p>
-      <div class="mini-wrap">
-        <div class="mini-grid">
-          <div class="mini-row mini-head">
-            <span class="mini-date">তারিখ</span>
-            ${eaters.map((m) => `<span class="mini-cell-head">${esc(m.name.slice(0, 6))}</span>`).join('')}
-          </div>
-          ${gaps.map((date) => `
-            <div class="mini-row" data-date="${date}">
-              <span class="mini-date">${esc(dayLabel(date))}</span>
-              ${eaters.map((m) => {
-                const v = d.counts[date] ? d.counts[date][m.id] : undefined;
-                return `<button class="mini-cell ${v === undefined ? 'blank' : ''}" data-date="${date}" data-member="${m.id}">${v === undefined ? '·' : num(v)}</button>`;
-              }).join('')}
-            </div>`).join('')}
-        </div>
+      <div class="chip-filter">
+        ${shown.map((d) => `<button class="chip" data-goday="${d}">${esc(dayLabel(d))}</button>`).join('')}
+        ${gaps.length > shown.length ? `<span class="chip">+${gaps.length - shown.length}</span>` : ''}
       </div>
-      <button class="btn btn-primary btn-block" id="saveBackfill">✓ এই দিনগুলো সেভ করো</button>
+      <p class="hint">তারিখে চাপলে ওই দিনটা উপরে খুলবে। meal কম বসলে rate ভুল হয়ে সবার হিসাব নড়ে যায়।</p>
     </div>`;
 }
 
-function bindBackfill(root, eaters) {
+function bindBackfill(root, eaters, gaps) {
+  root.querySelectorAll('[data-goday]').forEach((b) => (b.onclick = () => goDay(b.dataset.goday)));
+
   const fill = root.querySelector('#fillAll');
   if (!fill) return;
-  const month = peekMonth(DB, currentMonth());
-
   fill.onclick = () => {
-    entryBusy = true;
-    root.querySelectorAll('.mini-row[data-date]').forEach((row) => {
-      const date = row.dataset.date;
-      const proposal = proposalFor(month, eaters, date);
-      backfillDraft.counts[date] = { ...proposal };
-      row.querySelectorAll('.mini-cell').forEach((c) => {
-        c.textContent = num(proposal[c.dataset.member] || 0);
-        c.classList.remove('blank');
-      });
-    });
-    entryBusy = false;
-    toast('সব দিন ভরা হয়েছে — দরকারে ঘরে চেপে বদলাও');
-  };
-
-  root.querySelectorAll('.mini-cell').forEach((cell) => (cell.onclick = (ev) => {
-    ev.stopPropagation();
-    const { date, member } = cell.dataset;
-    if (!backfillDraft.counts[date]) backfillDraft.counts[date] = {};
-    const cur = backfillDraft.counts[date][member] ?? 0;
-    openCellEditor(cell, `${dayLabel(date)} · ${memberName(DB, member)}`, cur, (v) => {
-      backfillDraft.counts[date][member] = v;
-      cell.textContent = num(v);
-      cell.classList.remove('blank');
-    });
-  }));
-
-  root.querySelector('#saveBackfill').onclick = () => {
-    const dates = Object.keys(backfillDraft.counts);
-    if (!dates.length) return toast('আগে দিনগুলো ভরো', 'error');
-    const counts = JSON.parse(JSON.stringify(backfillDraft.counts));
-    // Days can straddle a month boundary, so write each into its own month.
+    if (!confirm(`${gaps.length} দিনে আগের দিনের মতো meal বসিয়ে দেব? পরে যেকোনো ঘরে চেপে বদলানো যাবে।`)) return;
     const byMonth = {};
-    dates.forEach((d) => { (byMonth[monthOf(d)] = byMonth[monthOf(d)] || []).push(d); });
+    gaps.forEach((d) => { (byMonth[monthOf(d)] = byMonth[monthOf(d)] || []).push(d); });
     Object.entries(byMonth).forEach(([mk, ds]) => {
       mutate((m) => {
         ds.forEach((date) => {
+          const proposal = proposalFor(m, eaters, date);
           eaters.forEach((mem) => {
-            const v = Number(counts[date][mem.id] || 0);
+            const v = Number(proposal[mem.id] || 0);
             const e = m.meals.find((x) => x.date === date && x.memberId === mem.id);
             if (e) e.count = v;
             else m.meals.push({ id: uid('meal'), date, memberId: mem.id, count: v });
@@ -511,11 +558,9 @@ function bindBackfill(root, eaters) {
         });
       }, mk);
     });
-    entryBusy = false;
-    backfillDraft = null;
     mealDraft = null;
     render();
-    toast(`${dates.length} দিন সেভ হয়েছে ✓`);
+    toast(`${gaps.length} দিন ভরা হয়েছে ✓`);
   };
 }
 
@@ -898,78 +943,21 @@ function renderGrid(root) {
 
   const days = daysInMonth(monthKey);
   const today = todayISO();
-
   const filled = days.filter((d) => dayConfirmed(month, d)).length;
   const ahead = days.filter((d) => d > today && dayConfirmed(month, d)).length;
+  if (!viewDay || monthOf(viewDay) !== monthKey) viewDay = monthOf(today) === monthKey ? today : days[0];
 
   root.innerHTML = `
     <div class="toolbar">
       <div class="inline-total">মোট meal <b>${num(allMealTotal(month))}</b> · ${filled}/${days.length} দিন বসানো${ahead ? ` · ${ahead} দিন আগাম` : ''}</div>
       <a class="btn btn-ghost btn-sm" href="#/today">← আজ</a>
     </div>
-
     <div class="card">
-      <div class="mini-wrap">
-        <div class="mini-grid glance">
-          <div class="mini-row mini-head">
-            <span class="mini-date">তারিখ</span>
-            ${eaters.map((m) => `<span class="mini-cell-head">${esc(m.name.slice(0, 6))}</span>`).join('')}
-            <span class="mini-cell-head">মোট</span>
-          </div>
-          ${days.map((d) => {
-            const conf = dayConfirmed(month, d);
-            const tot = eaters.reduce((s, m) => s + mealFor(month, d, m.id), 0);
-            const cls = [d === today ? 'is-today' : '', !conf ? 'not-filled' : '', d > today ? 'future' : ''].join(' ');
-            return `<div class="mini-row ${cls}" data-date="${d}">
-              <span class="mini-date">${esc(dayLabel(d))}${d === today ? ' <b>·আজ</b>' : ''}</span>
-              ${eaters.map((m) => {
-                const v = mealFor(month, d, m.id);
-                return `<button class="mini-cell ${conf ? (v ? '' : 'zero') : 'blank'}" data-date="${d}" data-member="${m.id}">${conf ? num(v) : '·'}</button>`;
-              }).join('')}
-              <span class="mini-cell-head strong">${conf ? num(tot) : '—'}</span>
-            </div>`;
-          }).join('')}
-          <div class="mini-row mini-foot">
-            <span class="mini-date">মোট</span>
-            ${eaters.map((m) => `<span class="mini-cell-head strong">${num(memberMealTotal(month, m.id))}</span>`).join('')}
-            <span class="mini-cell-head strong">${num(allMealTotal(month))}</span>
-          </div>
-        </div>
-      </div>
-      <p class="hint">যেকোনো ঘরে চাপলে − / + দিয়ে সংখ্যা বসাও (যত খুশি, ০.৫ করেও)। <b>·</b> মানে ওই দিন কেউ বসায়নি। আগামী দিনের meal-ও আগে থেকে বসিয়ে রাখা যায়।</p>
+      ${mealMatrix(month, eaters, monthKey, viewDay)}
+      <p class="hint">ঘরে চাপলে − / + দিয়ে সংখ্যা বসাও (সর্বোচ্চ ৫, ০.৫ করেও)। <b>·</b> মানে ওই দিন কেউ বসায়নি। আগামী দিনের meal-ও আগে থেকে বসিয়ে রাখা যায়।</p>
     </div>`;
 
-  root.querySelectorAll('.mini-cell').forEach((cell) => (cell.onclick = (ev) => {
-    ev.stopPropagation();
-    const { date, member } = cell.dataset;
-    const mk = monthOf(date);
-    const cur = mealFor(peekMonth(DB, mk), date, member);
-    const who = memberName(DB, member);
-
-    openCellEditor(cell, `${dayLabel(date)} · ${who}`, cur, (v) => {
-      mutate((m) => {
-        const e = m.meals.find((x) => x.date === date && x.memberId === member);
-        if (e) e.count = v;
-        else m.meals.push({ id: uid('meal'), date, memberId: member, count: v });
-        m.mealDays[date] = true;
-      }, mk);
-
-      // Update in place — a full re-render would close the editor mid-tap.
-      const live = peekMonth(DB, mk);
-      cell.textContent = num(v);
-      cell.classList.remove('blank');
-      cell.classList.toggle('zero', !v);
-      const row = cell.closest('.mini-row');
-      row.classList.remove('not-filled');
-      const dayTotal = eaters.reduce((s, mm) => s + mealFor(live, date, mm.id), 0);
-      row.querySelector('.mini-cell-head').textContent = num(dayTotal);
-      const foot = root.querySelector('.mini-foot');
-      eaters.forEach((mm, i) => {
-        foot.querySelectorAll('.mini-cell-head')[i].textContent = num(memberMealTotal(live, mm.id));
-      });
-      foot.querySelectorAll('.mini-cell-head')[eaters.length].textContent = num(allMealTotal(live));
-    });
-  }));
+  bindMatrix(root, eaters);
 }
 
 /* ---------------- আরও ---------------- */

@@ -557,6 +557,58 @@ input.cell-input {
 .mini-cell.blank { color: var(--text-muted); opacity: .45; border-style: dashed; }
 .mini-cell.zero { color: var(--text-muted); opacity: .6; }
 
+/* ===== Meal matrix: members down, days across ===== */
+.matrix-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -6px; padding: 0 6px; }
+.matrix { border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.matrix th, .matrix td { padding: 0; }
+
+.mx-name {
+  position: sticky; left: 0; z-index: 2;
+  background: var(--surface);
+  min-width: 78px; max-width: 78px;
+  text-align: left; padding: 8px 10px !important;
+  font-weight: 600; font-size: 13px;
+  border-right: 1px solid var(--border);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+thead .mx-name { color: var(--text-muted); font-size: 11.5px; font-weight: 700; }
+
+.mx-day {
+  min-width: 44px; padding: 6px 2px !important;
+  font-weight: 600; color: var(--text-muted); cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  border-radius: 9px 9px 0 0;
+}
+.mx-day b { display: block; font-size: 13.5px; color: var(--text); }
+.mx-day span { display: block; font-size: 9.5px; opacity: .75; }
+.mx-day.not-filled b { color: var(--warning); }
+.mx-day.is-today b { color: var(--primary); }
+.mx-day.is-sel {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+}
+.mx-day.is-sel b, .mx-day.is-sel span { color: #fff; }
+
+.mx-cell {
+  min-width: 44px; height: 40px;
+  text-align: center; font-weight: 600; font-variant-numeric: tabular-nums;
+  cursor: pointer; border-bottom: 1px solid var(--border);
+}
+.mx-cell:active { background: var(--surface-2); }
+.mx-cell.blank { color: var(--text-muted); opacity: .35; }
+.mx-cell.zero { color: var(--text-muted); opacity: .6; }
+.mx-cell.is-sel { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+
+.mx-total {
+  position: sticky; right: 0; z-index: 2;
+  min-width: 50px; text-align: center;
+  background: var(--surface-2);
+  font-weight: 800; font-size: 13px;
+  padding: 8px 6px !important;
+  border-left: 1px solid var(--border);
+}
+.mx-foot td { background: var(--surface-2); font-weight: 700; text-align: center; padding: 8px 2px !important; }
+.mx-foot .mx-name { background: var(--surface-2); }
+
 /* tap-a-cell editor */
 .cell-pop {
   position: fixed; z-index: 120; width: 250px;
