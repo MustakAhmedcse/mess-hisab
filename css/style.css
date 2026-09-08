@@ -557,6 +557,20 @@ input.cell-input {
 .mini-cell.blank { color: var(--text-muted); opacity: .45; border-style: dashed; }
 .mini-cell.zero { color: var(--text-muted); opacity: .6; }
 
+/* tap-a-cell editor */
+.cell-pop {
+  position: fixed; z-index: 120; width: 250px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px;
+  box-shadow: var(--shadow-md);
+  animation: slideUp .12s ease;
+}
+.cell-pop-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-align: center; margin-bottom: 8px; }
+.cell-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.cell-pop-val { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cell-pop-quick { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 10px; }
+.cell-pop-quick .chip { padding: 6px 8px; font-size: 12.5px; min-width: 34px; }
+
 /* at-a-glance month view */
 .mini-grid.glance .mini-row { padding: 2px 4px; border-radius: 9px; }
 .mini-grid.glance .mini-row.is-today { background: color-mix(in srgb, var(--primary) 12%, transparent); }
