@@ -23,9 +23,9 @@ const LS = {
 function safeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function safeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
 
-const ROUTES = ['dashboard', 'hisab', 'more'];
+const ROUTES = ['dashboard', 'hisab', 'settings'];
 const ROUTE_TITLES = {
-  dashboard: 'Dashboard', hisab: 'হিসাব', more: 'আরও'
+  dashboard: 'ড্যাশবোর্ড', hisab: 'হিসাব', settings: 'সেটিংস'
 };
 
 const BILL_TYPES = ['কারেন্ট', 'নেট', 'পানি', 'গ্যাস', 'অন্যান্য'];
@@ -175,6 +175,7 @@ function bindChrome() {
 
 function currentRoute() {
   const h = (location.hash || '#/dashboard').replace('#/', '');
+  if (h === 'more') return 'settings';
   return ROUTES.includes(h) ? h : 'dashboard';
 }
 
@@ -189,7 +190,7 @@ function render() {
   if (!DB.members.length) return renderWelcome(root);
   if (!LS.me) return renderWhoAmI(root);
 
-  ({ dashboard: renderDashboard, hisab: renderHisab, more: renderMore })[route](root);
+  ({ dashboard: renderDashboard, hisab: renderHisab, settings: renderSettings })[route](root);
 }
 
 function populateMonthSelect() {
@@ -899,7 +900,7 @@ function hisabCard(r, s) {
 
 /* ---------------- আরও ---------------- */
 
-function renderMore(root) {
+function renderSettings(root) {
   const meNow = me();
   root.innerHTML = `
     <div class="card">
