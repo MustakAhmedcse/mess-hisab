@@ -991,14 +991,13 @@ function renderSettings(root) {
       <p class="hint">সব ডেটা cloud এ থাকে ও সব ফোনে live যায় — ব্যাকআপ শুধু বাড়তি নিরাপত্তা।</p>
     </div>
 
+    ${admin ? `
     <div class="card">
       <h3>⚠️ সাবধান</h3>
-      ${admin
-        ? '<button class="btn btn-danger btn-sm" id="resetBtn">সব ডেটা মুছে ফেলো</button><p class="hint">সব ফোন থেকেই মুছে যাবে — ফেরানো যাবে না।</p>'
-        : '<p class="hint">সব ডেটা মোছার কাজটা শুধু অ্যাডমিন করতে পারে।</p>'}
+      <button class="btn btn-danger btn-sm" id="resetBtn">সব ডেটা মুছে ফেলো</button>
+      <p class="hint">সব ফোন থেকেই মুছে যাবে — ফেরানো যাবে না।</p>
     </div>
 
-    ${admin ? `
     <div class="card">
       <h3>📋 কে কী করেছে</h3>
       ${log.length ? `<div class="log-list">${log.map((e) => `
