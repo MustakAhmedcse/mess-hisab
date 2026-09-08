@@ -604,6 +604,14 @@ thead .mx-name { color: var(--text-muted); font-size: 11.5px; font-weight: 700; 
 .mx-foot td { background: var(--surface-2); font-weight: 700; text-align: center; padding: 8px 2px !important; }
 .mx-foot .mx-name { background: var(--surface-2); }
 
+/* change log */
+.log-list { display: flex; flex-direction: column; gap: 2px; max-height: 380px; overflow-y: auto; margin-bottom: 10px; }
+.log-row { display: flex; align-items: flex-start; gap: 9px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+.log-row:last-child { border-bottom: none; }
+.log-main { min-width: 0; }
+.log-text { font-size: 13px; }
+.log-meta { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+
 /* tap-a-cell editor */
 .cell-pop {
   position: fixed; z-index: 120; width: 250px;

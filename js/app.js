@@ -66,6 +66,7 @@ function normalizeDB() {
   if (!DB.members) DB.members = [];
   if (!DB.months) DB.months = {};
   if (!DB.settings) DB.settings = {};
+  if (!DB.log) DB.log = [];
 
   // A stale device identity (after a reset or an import) must not stick around.
   if (LS.me && !DB.members.some((m) => m.id === LS.me)) LS.me = '';
@@ -82,6 +83,34 @@ function normalizeDB() {
 
 function me() { return LS.me ? memberById(DB, LS.me) : null; }
 function currentMonth() { return viewMonth; }
+
+/**
+ * Resetting everything and reading the change log are admin-only. Whoever set
+ * the mess up is admin by default; if nobody is flagged (older data), the first
+ * member holds it, so the mess can never lock itself out of its own settings.
+ */
+function isAdminMember(m) {
+  if (DB.members.some((x) => x.admin)) return !!m.admin;
+  return DB.members[0] && DB.members[0].id === m.id;
+}
+
+function isAdmin() {
+  const m = me();
+  return !!m && !!isAdminMember(m);
+}
+
+function relTime(iso) {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return '';
+  const mins = Math.round((Date.now() - then.getTime()) / 60000);
+  if (mins < 1) return 'এইমাত্র';
+  if (mins < 60) return `${mins} মিনিট আগে`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} ঘণ্টা আগে`;
+  const days = Math.round(hrs / 24);
+  if (days < 7) return `${days} দিন আগে`;
+  return `${then.getDate()}/${then.getMonth() + 1} ${String(then.getHours()).padStart(2, '0')}:${String(then.getMinutes()).padStart(2, '0')}`;
+}
 
 function setMonth(m) {
   viewMonth = m;
@@ -106,18 +135,31 @@ let saveTimer = null;
  * from under old closures) and bumps rev immediately, so a remote snapshot
  * arriving during the debounce window can't look newer than our unsaved work.
  */
-function mutate(fn, monthKeyOverride) {
+function mutate(fn, monthKeyOverride, logText) {
   const key = monthKeyOverride || currentMonth();
   const month = ensureMonth(DB, key);
   fn(month, DB, key);
+  if (logText) writeLog(logText);
   DB.rev = (Number(DB.rev) || 0) + 1;
   persist();
 }
 
-function mutateDB(fn) {
+function mutateDB(fn, logText) {
   fn(DB);
+  if (logText) writeLog(logText);
   DB.rev = (Number(DB.rev) || 0) + 1;
   persist();
+}
+
+/**
+ * Every change is stamped with who made it, so "I didn't do that" can be
+ * checked rather than argued about. Kept to the last 200 entries — the whole
+ * mess lives in one Firestore document and this must not grow without bound.
+ */
+function writeLog(text) {
+  if (!DB.log) DB.log = [];
+  DB.log.push({ at: new Date().toISOString(), by: LS.me || null, text });
+  if (DB.log.length > 200) DB.log = DB.log.slice(-200);
 }
 
 function persist() {
@@ -512,7 +554,7 @@ function bindMatrix(root, eaters) {
         if (e) e.count = v;
         else m.meals.push({ id: uid('meal'), date, memberId: member, count: v });
         m.mealDays[date] = true;
-      }, mk);
+      }, mk, `${dayLabel(date)} · ${memberName(DB, member)} — meal ${num(v)}`);
 
       // Update in place — a re-render would close the editor under the finger.
       const live = peekMonth(DB, mk);
@@ -579,7 +621,7 @@ function bindBackfill(root, eaters, gaps) {
           });
           m.mealDays[date] = true;
         });
-      }, mk);
+      }, mk, `${ds.length} দিনের meal একসাথে বসিয়েছে`);
     });
     mealDraft = null;
     render();
@@ -643,7 +685,7 @@ function saveDay(day) {
     // Recording the day as confirmed is what separates "everyone ate nothing"
     // from "nobody filled this in".
     month.mealDays[day] = true;
-  }, monthOf(day));
+  }, monthOf(day), `${dayLabel(day)} — সবার meal বসিয়েছে`);
   entryBusy = false;
   mealDraft = null;
   render();
@@ -740,7 +782,7 @@ function openCostModal({ kind, id, date }) {
     mutate((m) => {
       if (kind === 'bazar') m.bazar = m.bazar.filter((x) => x.id !== id);
       else m.others = m.others.filter((x) => x.id !== id);
-    }, monthKey);
+    }, monthKey, `${money(editing?.amount || 0)} ${kind === 'bazar' ? 'বাজার' : 'অন্যান্য'} মুছেছে`);
     closeModal();
     render();
     toast('মুছে ফেলা হয়েছে');
@@ -766,7 +808,7 @@ function openCostModal({ kind, id, date }) {
       const target = id ? arr.find((x) => x.id === id) : null;
       if (target) Object.assign(target, data);
       else arr.push({ id: uid(kind === 'bazar' ? 'b' : 'o'), ...data });
-    }, targetMonth);
+    }, targetMonth, `${money(data.amount)} ${kind === 'bazar' ? 'বাজার' : (data.type || 'অন্যান্য')} ${id ? 'বদলেছে' : 'যোগ করেছে'} — ${memberName(DB, data.memberId)} এর টাকায়`);
 
     closeModal();
     if (targetMonth !== currentMonth()) setMonth(targetMonth);
@@ -861,18 +903,20 @@ function renderHisab(root) {
     navigator.clipboard?.writeText(text).then(() => toast('কপি হয়েছে')).catch(() => toast('কপি হয়নি', 'error'));
   };
   root.querySelector('#collectorSel').onchange = (e) => {
-    mutate((m) => { m.collector = e.target.value || null; });
+    mutate((m) => { m.collector = e.target.value || null; },
+      undefined, e.target.value ? `এ মাসে ভাড়া+বুয়া তুলবে: ${memberName(DB, e.target.value)}` : 'ভাড়া+বুয়ার দায়িত্ব সরিয়েছে');
     render();
   };
   root.querySelectorAll('.fixed-input').forEach((inp) => (inp.onchange = () => {
-    mutate(() => setFixed(DB, currentMonth(), inp.dataset.member, { [inp.dataset.field]: Number(inp.value) || 0 }));
+    mutate(() => setFixed(DB, currentMonth(), inp.dataset.member, { [inp.dataset.field]: Number(inp.value) || 0 }),
+      undefined, `${memberName(DB, inp.dataset.member)} এর ${inp.dataset.field === 'rent' ? 'ভাড়া' : 'বুয়া'} ${money(Number(inp.value) || 0)} করেছে`);
     requestRender();
   }));
   root.querySelectorAll('.hand-check').forEach((c) => (c.onchange = () => {
     mutate((m) => {
       if (c.checked) m.handedOver[c.dataset.member] = true;
       else delete m.handedOver[c.dataset.member];
-    });
+    }, undefined, `${memberName(DB, c.dataset.member)} ভাড়া+বুয়া ${c.checked ? 'দিয়েছে ✓' : 'দেয়নি'}`);
   }));
 }
 
@@ -902,6 +946,8 @@ function hisabCard(r, s) {
 
 function renderSettings(root) {
   const meNow = me();
+  const admin = isAdmin();
+  const log = (DB.log || []).slice().reverse();
   root.innerHTML = `
     <div class="card">
       <div class="toolbar"><h3>👥 সদস্য</h3><button class="btn btn-primary btn-sm" id="addMember">+ যোগ করো</button></div>
@@ -911,7 +957,7 @@ function renderSettings(root) {
           <tbody>
             ${DB.members.map((m) => `<tr class="${m.active ? '' : 'row-off'}">
               <td>${nameCell(m.name, m.active ? '' : '<span class="tag tag-sm">বন্ধ</span>')}</td>
-              <td>${m.inMeal === false ? '<span class="badge badge-muted">না</span>' : '<span class="badge badge-success">হ্যাঁ</span>'}</td>
+              <td>${m.inMeal === false ? '<span class="badge badge-muted">না</span>' : '<span class="badge badge-success">হ্যাঁ</span>'}${isAdminMember(m) ? ' <span class="tag tag-sm">অ্যাডমিন</span>' : ''}</td>
               <td class="num">${money(m.rent || 0)}</td>
               <td class="num">${money(m.bua || 0)}</td>
               <td class="row-actions">
@@ -947,8 +993,24 @@ function renderSettings(root) {
 
     <div class="card">
       <h3>⚠️ সাবধান</h3>
-      <button class="btn btn-danger btn-sm" id="resetBtn">সব ডেটা মুছে ফেলো</button>
-    </div>`;
+      ${admin
+        ? '<button class="btn btn-danger btn-sm" id="resetBtn">সব ডেটা মুছে ফেলো</button><p class="hint">সব ফোন থেকেই মুছে যাবে — ফেরানো যাবে না।</p>'
+        : '<p class="hint">সব ডেটা মোছার কাজটা শুধু অ্যাডমিন করতে পারে।</p>'}
+    </div>
+
+    ${admin ? `
+    <div class="card">
+      <h3>📋 কে কী করেছে</h3>
+      ${log.length ? `<div class="log-list">${log.map((e) => `
+        <div class="log-row">
+          ${avatar(e.by ? memberName(DB, e.by) : '?', 'xs')}
+          <div class="log-main">
+            <div class="log-text">${esc(e.text)}</div>
+            <div class="log-meta">${esc(e.by ? memberName(DB, e.by) : 'অজানা')} · ${esc(relTime(e.at))}</div>
+          </div>
+        </div>`).join('')}</div>` : emptyMsg('এখনো কিছু হয়নি।')}
+      <p class="hint">শেষ ২০০টা পরিবর্তন — কে কখন কী বদলেছে।</p>
+    </div>` : ''}`;
 
   root.querySelector('#addMember').onclick = () => openMemberModal();
   root.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => openMemberModal(b.dataset.edit)));
@@ -959,7 +1021,7 @@ function renderSettings(root) {
     if (m.active && row && (row.paid > 0 || row.meals > 0)) {
       if (!confirm(`${m.name} এই মাসে ${money(row.paid)} খরচ করেছে ও ${num(row.meals)} meal খেয়েছে। বন্ধ করলেও ওই হিসাব থাকবে। ঠিক আছে?`)) return;
     }
-    mutateDB(() => { m.active = !m.active; });
+    mutateDB(() => { m.active = !m.active; }, `${m.name} কে ${m.active ? 'বন্ধ' : 'চালু'} করেছে`);
     render();
   }));
   root.querySelector('#changeMe').onclick = () => { LS.me = ''; render(); };
@@ -968,7 +1030,8 @@ function renderSettings(root) {
   root.querySelector('#exportAll').onclick = () => { exportDB(DB, todayISO()); toast('ডাউনলোড হয়েছে'); };
   root.querySelector('#exportMonth').onclick = () => { exportMonth(DB, currentMonth()); toast('ডাউনলোড হয়েছে'); };
   root.querySelector('#importInput').onchange = handleImport;
-  root.querySelector('#resetBtn').onclick = async () => {
+  const resetBtn = root.querySelector('#resetBtn');
+  if (resetBtn) resetBtn.onclick = async () => {
     if (!confirm('সব ডেটা মুছে যাবে — সব ফোন থেকেই। নিশ্চিত?')) return;
     if (!confirm('সত্যিই? এটা ফেরানো যাবে না।')) return;
     if (saveTimer !== null) clearTimeout(saveTimer);
@@ -988,6 +1051,10 @@ function openMemberModal(id) {
         <input type="checkbox" name="inMeal" ${editing?.inMeal === false ? '' : 'checked'}>
         <span>Meal এ আছে (বাজার ও অন্যান্য খরচের ভাগ দেবে)</span>
       </label>
+      ${isAdmin() ? `<label class="check-row">
+        <input type="checkbox" name="admin" ${editing && isAdminMember(editing) ? 'checked' : ''}>
+        <span>অ্যাডমিন — সব ডেটা মোছা ও log দেখতে পারবে</span>
+      </label>` : ''}
       <label>মাসিক ভাড়া</label>
       <input type="number" inputmode="numeric" min="0" name="rent" value="${editing?.rent ?? 0}">
       <label>বুয়ার বিল</label>
@@ -1008,11 +1075,12 @@ function openMemberModal(id) {
       rent: Number(fd.get('rent')) || 0,
       bua: Number(fd.get('bua')) || 0
     };
+    if (isAdmin()) data.admin = fd.get('admin') === 'on';
     mutateDB((db) => {
       const t = id ? db.members.find((m) => m.id === id) : null;
       if (t) Object.assign(t, data);
-      else db.members.push({ id: uid('m'), active: true, ...data });
-    });
+      else db.members.push({ id: uid('m'), active: true, admin: db.members.length === 0, ...data });
+    }, id ? `সদস্য বদলেছে: ${data.name}` : `নতুন সদস্য: ${data.name}`);
     closeModal();
     render();
     toast('সেভ হয়েছে ✓');
@@ -1048,7 +1116,7 @@ async function handleImport(e) {
       if (!confirm('এটা সব ফোনের ডেটা বদলে দেবে। নিশ্চিত?')) return;
       DB = parsed;
       normalizeDB();
-      mutateDB(() => {});
+      mutateDB(() => {}, 'ফাইল থেকে সব ডেটা বদলেছে');
       toast('ফাইল থেকে নেওয়া হয়েছে');
     } else if (parsed.monthKey && parsed.month) {
       mutateDB((db) => {
@@ -1056,7 +1124,7 @@ async function handleImport(e) {
         (parsed.members || []).forEach((pm) => {
           if (!db.members.find((m) => m.id === pm.id)) db.members.push(pm);
         });
-      });
+      }, `${parsed.monthKey} ফাইল থেকে নিয়েছে`);
       toast(`${parsed.monthKey} নেওয়া হয়েছে`);
     } else {
       return toast('ফাইলটা চেনা গেল না', 'error');
