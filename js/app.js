@@ -23,9 +23,9 @@ const LS = {
 function safeGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function safeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
 
-const ROUTES = ['today', 'khoroch', 'hisab', 'more', 'grid'];
+const ROUTES = ['dashboard', 'hisab', 'more'];
 const ROUTE_TITLES = {
-  today: 'আজ', khoroch: 'খরচ', hisab: 'হিসাব', more: 'আরও', grid: 'পুরো মাসের meal'
+  dashboard: 'Dashboard', hisab: 'হিসাব', more: 'আরও'
 };
 
 const BILL_TYPES = ['কারেন্ট', 'নেট', 'পানি', 'গ্যাস', 'অন্যান্য'];
@@ -54,7 +54,7 @@ function init() {
         firstLoad = false;
         bindChrome();
         window.addEventListener('hashchange', () => { mealDraft = null; render(); });
-        if (!location.hash) location.hash = '#/today';
+        if (!location.hash) location.hash = '#/dashboard';
       }
       requestRender();
     },
@@ -174,8 +174,8 @@ function bindChrome() {
 }
 
 function currentRoute() {
-  const h = (location.hash || '#/today').replace('#/', '');
-  return ROUTES.includes(h) ? h : 'today';
+  const h = (location.hash || '#/dashboard').replace('#/', '');
+  return ROUTES.includes(h) ? h : 'dashboard';
 }
 
 function render() {
@@ -189,7 +189,7 @@ function render() {
   if (!DB.members.length) return renderWelcome(root);
   if (!LS.me) return renderWhoAmI(root);
 
-  ({ today: renderToday, khoroch: renderKhoroch, hisab: renderHisab, more: renderMore, grid: renderGrid })[route](root);
+  ({ dashboard: renderDashboard, hisab: renderHisab, more: renderMore })[route](root);
 }
 
 function populateMonthSelect() {
@@ -310,7 +310,7 @@ function renderWhoAmI(root) {
 
 /* ---------------- আজ ---------------- */
 
-function renderToday(root) {
+function renderDashboard(root) {
   const monthKey = currentMonth();
   const today = todayISO();
   const month = peekMonth(DB, monthKey);
@@ -319,8 +319,8 @@ function renderToday(root) {
   const mine = s.rows.find((r) => me() && r.member.id === me().id);
 
   // The day being edited is its own state — deriving it from "today" is what
-  // made the ‹ আগের দিন button and the missing-day chips do nothing. Future
-  // days are allowed: anyone can fill their meals in ahead of time.
+  // made the ‹ আগের button and the missing-day chips do nothing. Future days
+  // are allowed: anyone can fill their meals in ahead of time.
   if (!viewDay || monthOf(viewDay) !== monthKey) {
     viewDay = monthOf(today) === monthKey ? today : `${monthKey}-01`;
   }
@@ -330,14 +330,36 @@ function renderToday(root) {
 
   if (!mealDraft || mealDraft.date !== day) mealDraft = { date: day, counts: proposalFor(month, eaters, day) };
   const confirmed = dayConfirmed(month, day);
-
   const gaps = missingDays(month, monthKey);
 
+  const myBazar = month.bazar.filter((b) => mine && b.memberId === mine.member.id).reduce((t, b) => t + Number(b.amount || 0), 0);
+  const myOther = month.others.filter((o) => mine && o.memberId === mine.member.id).reduce((t, o) => t + Number(o.amount || 0), 0);
+
+  const all = [
+    ...month.bazar.map((b) => ({ ...b, kind: 'bazar' })),
+    ...month.others.map((o) => ({ ...o, kind: 'bill' }))
+  ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
   root.innerHTML = `
+    <div class="pool-row">
+      <div class="pool-card pool-bazar">
+        <div class="pool-icon">🛒</div>
+        <div><div class="pool-label">বাজার খরচ</div><div class="pool-value">${money(s.totalBazar)}</div>
+          <div class="pool-rule">meal অনুযায়ী ভাগ${s.rateReady ? ` · ${money2(s.mealRate)}/meal` : ''}</div></div>
+      </div>
+      <div class="pool-card pool-bill">
+        <div class="pool-icon">💡</div>
+        <div><div class="pool-label">অন্যান্য খরচ</div><div class="pool-value">${money(s.totalBills)}</div>
+          <div class="pool-rule">সমান ভাগ (${s.eaters.length} জন)${s.eaters.length ? ` · ${money2(s.billsPerHead)}/জন` : ''}</div></div>
+      </div>
+    </div>
+
     ${mine ? `
     <div class="my-card">
-      <div class="my-row"><span>আমি খেয়েছি</span><b>${num(mine.meals)} meal</b></div>
-      <div class="my-row"><span>আমি দিয়েছি</span><b>${money(mine.paid)}</b></div>
+      <div class="my-head">${avatar(mine.member.name, 'sm')}<b>${esc(mine.member.name)}</b><span class="muted">— এই মাসে</span></div>
+      <div class="my-row"><span>মোট meal</span><b>${num(mine.meals)}</b></div>
+      <div class="my-row"><span>মোট দিয়েছি</span><b>${money(mine.paid)}</b></div>
+      <div class="my-row sub-row"><span>বাজার ${money(myBazar)} · অন্যান্য ${money(myOther)}</span><span></span></div>
       <div class="my-row muted-row"><span>${s.rateReady ? 'মাস শেষ হলে আনুমানিক' : 'হিসাব হবে meal বসানোর পর'}</span>
         <span>${s.rateReady ? dueLine(mine.due) : '—'}</span></div>
     </div>` : ''}
@@ -370,12 +392,21 @@ function renderToday(root) {
 
     ${gaps.length && eaters.length ? backfillCard(month, eaters, gaps) : ''}
 
-    <div class="card">
-      <h3>খরচ যোগ করো</h3>
-      <div class="big-actions">
-        <button class="btn btn-primary btn-big" id="addBazar">🛒 বাজার</button>
-        <button class="btn btn-ghost btn-big" id="addBill">💡 অন্যান্য</button>
+    <div class="toolbar">
+      <div class="chip-filter" id="kindFilter">
+        <button class="chip active" data-kind="all">সব</button>
+        <button class="chip" data-kind="bazar">🛒 বাজার</button>
+        <button class="chip" data-kind="bill">💡 অন্যান্য</button>
       </div>
+    </div>
+
+    <div class="entry-list" id="entryList">
+      ${all.map((e) => entryCard(e)).join('') || emptyMsg('এই মাসে এখনো কোনো খরচ যোগ করা হয়নি।')}
+    </div>
+
+    <div class="fab-row">
+      <button class="fab fab-primary" id="fabBazar">🛒 বাজার</button>
+      <button class="fab" id="fabBill">💡 অন্যান্য</button>
     </div>`;
 
   bindSteppers(root, day);
@@ -384,8 +415,18 @@ function renderToday(root) {
   root.querySelector('#saveMeals') && (root.querySelector('#saveMeals').onclick = () => saveDay(day));
   root.querySelector('#prevDay').onclick = () => { if (day > monthDays[0]) goDay(addDays(day, -1)); };
   root.querySelector('#nextDay').onclick = () => { if (day < lastDay) goDay(addDays(day, 1)); };
-  root.querySelector('#addBazar').onclick = () => openCostModal({ kind: 'bazar', date: day });
-  root.querySelector('#addBill').onclick = () => openCostModal({ kind: 'bill', date: day });
+
+  root.querySelectorAll('#kindFilter .chip').forEach((c) => (c.onclick = () => {
+    root.querySelectorAll('#kindFilter .chip').forEach((x) => x.classList.remove('active'));
+    c.classList.add('active');
+    root.querySelectorAll('.entry-card').forEach((card) => {
+      card.style.display = (c.dataset.kind === 'all' || card.dataset.kind === c.dataset.kind) ? '' : 'none';
+    });
+  }));
+  root.querySelectorAll('.entry-card').forEach((card) => (card.onclick = () =>
+    openCostModal({ kind: card.dataset.kind, id: card.dataset.id })));
+  root.querySelector('#fabBazar').onclick = () => openCostModal({ kind: 'bazar', date: day });
+  root.querySelector('#fabBill').onclick = () => openCostModal({ kind: 'bill', date: day });
 }
 
 function goDay(dateISO) {
@@ -614,59 +655,6 @@ function missingDays(month, monthKey) {
 }
 
 /* ---------------- খরচ (bazar + bills, one page) ---------------- */
-
-function renderKhoroch(root) {
-  const monthKey = currentMonth();
-  const s = computeSummary(DB, monthKey);
-  const month = s.month;
-  const all = [
-    ...month.bazar.map((b) => ({ ...b, kind: 'bazar' })),
-    ...month.others.map((o) => ({ ...o, kind: 'bill' }))
-  ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
-
-  root.innerHTML = `
-    <div class="pool-row">
-      <div class="pool-card pool-bazar">
-        <div class="pool-icon">🛒</div>
-        <div><div class="pool-label">বাজার খরচ</div><div class="pool-value">${money(s.totalBazar)}</div>
-          <div class="pool-rule">meal অনুযায়ী ভাগ${s.rateReady ? ` · ${money2(s.mealRate)}/meal` : ''}</div></div>
-      </div>
-      <div class="pool-card pool-bill">
-        <div class="pool-icon">💡</div>
-        <div><div class="pool-label">অন্যান্য খরচ</div><div class="pool-value">${money(s.totalBills)}</div>
-          <div class="pool-rule">সমান ভাগ (${s.eaters.length} জন)${s.eaters.length ? ` · ${money2(s.billsPerHead)}/জন` : ''}</div></div>
-      </div>
-    </div>
-
-    <div class="toolbar">
-      <div class="chip-filter" id="kindFilter">
-        <button class="chip active" data-kind="all">সব</button>
-        <button class="chip" data-kind="bazar">🛒 বাজার</button>
-        <button class="chip" data-kind="bill">💡 অন্যান্য</button>
-      </div>
-    </div>
-
-    <div class="entry-list" id="entryList">
-      ${all.map((e) => entryCard(e)).join('') || emptyMsg('এই মাসে এখনো কোনো খরচ যোগ করা হয়নি।')}
-    </div>
-
-    <div class="fab-row">
-      <button class="fab fab-primary" id="fabBazar">🛒 বাজার</button>
-      <button class="fab" id="fabBill">💡 অন্যান্য</button>
-    </div>`;
-
-  root.querySelectorAll('#kindFilter .chip').forEach((c) => (c.onclick = () => {
-    root.querySelectorAll('#kindFilter .chip').forEach((x) => x.classList.remove('active'));
-    c.classList.add('active');
-    root.querySelectorAll('.entry-card').forEach((card) => {
-      card.style.display = (c.dataset.kind === 'all' || card.dataset.kind === c.dataset.kind) ? '' : 'none';
-    });
-  }));
-  root.querySelectorAll('.entry-card').forEach((card) => (card.onclick = () =>
-    openCostModal({ kind: card.dataset.kind, id: card.dataset.id })));
-  root.querySelector('#fabBazar').onclick = () => openCostModal({ kind: 'bazar' });
-  root.querySelector('#fabBill').onclick = () => openCostModal({ kind: 'bill' });
-}
 
 function entryCard(e) {
   return `
@@ -908,31 +896,6 @@ function hisabCard(r, s) {
 }
 
 /* ---------------- পুরো মাসের grid ---------------- */
-
-function renderGrid(root) {
-  const monthKey = currentMonth();
-  const month = peekMonth(DB, monthKey);
-  const eaters = mealMembers(DB);
-  if (!eaters.length) return void (root.innerHTML = emptyMsg('কোনো meal member নেই।'));
-
-  const days = daysInMonth(monthKey);
-  const today = todayISO();
-  const filled = days.filter((d) => dayConfirmed(month, d)).length;
-  const ahead = days.filter((d) => d > today && dayConfirmed(month, d)).length;
-  if (!viewDay || monthOf(viewDay) !== monthKey) viewDay = monthOf(today) === monthKey ? today : days[0];
-
-  root.innerHTML = `
-    <div class="toolbar">
-      <div class="inline-total">মোট meal <b>${num(allMealTotal(month))}</b> · ${filled}/${days.length} দিন বসানো${ahead ? ` · ${ahead} দিন আগাম` : ''}</div>
-      <a class="btn btn-ghost btn-sm" href="#/today">← আজ</a>
-    </div>
-    <div class="card">
-      ${mealMatrix(month, eaters, monthKey, viewDay)}
-      <p class="hint">ঘরে চাপলে − / + দিয়ে সংখ্যা বসাও (সর্বোচ্চ ৫, ০.৫ করেও)। <b>·</b> মানে ওই দিন কেউ বসায়নি। আগামী দিনের meal-ও আগে থেকে বসিয়ে রাখা যায়।</p>
-    </div>`;
-
-  bindMatrix(root, eaters);
-}
 
 /* ---------------- আরও ---------------- */
 

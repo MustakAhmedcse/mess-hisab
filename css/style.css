@@ -495,6 +495,9 @@ input.cell-input {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 14px 18px; margin-bottom: 20px; box-shadow: var(--shadow);
 }
+.my-head { display: flex; align-items: center; gap: 9px; font-size: 15px; padding-bottom: 9px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.my-head .muted { font-size: 12.5px; font-weight: 500; }
+.sub-row { font-size: 12px; padding-top: 0 !important; margin-top: -4px; }
 .my-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 14px; }
 .my-row span:first-child { color: var(--text-muted); }
 .muted-row { border-top: 1px dashed var(--border); margin-top: 6px; padding-top: 10px; font-size: 12.5px; }
