@@ -239,37 +239,6 @@ export function setFixed(db, monthKey, memberId, patch) {
   return month.fixed[memberId];
 }
 
-/* ---------------- meal manager duty ---------------- */
-
-/** Append-only log; the manager on a date is the latest entry starting on or before it. */
-export function managerOn(db, dateISO) {
-  const log = (db.duty || []).filter((d) => d.from <= dateISO).sort((a, b) => a.from.localeCompare(b.from));
-  const last = log[log.length - 1];
-  return last ? memberById(db, last.memberId) : null;
-}
-
-export function currentDuty(db, dateISO) {
-  const log = (db.duty || []).slice().sort((a, b) => a.from.localeCompare(b.from));
-  const idx = log.reduce((acc, d, i) => (d.from <= dateISO ? i : acc), -1);
-  if (idx < 0) return null;
-  return { ...log[idx], next: log[idx + 1] || null };
-}
-
-export function suggestNextManager(db) {
-  const order = (db.rotationOrder || []).length
-    ? db.rotationOrder
-    : activeMembers(db).map((m) => m.id);
-  const current = (db.duty || []).slice().sort((a, b) => a.from.localeCompare(b.from)).pop();
-  const eligible = order.filter((id) => {
-    const m = memberById(db, id);
-    return m && m.active && !m.skipDuty;
-  });
-  if (!eligible.length) return null;
-  if (!current) return eligible[0];
-  const i = eligible.indexOf(current.memberId);
-  return eligible[(i + 1) % eligible.length];
-}
-
 /* ---------------- meal helpers ---------------- */
 
 export function mealFor(month, dateISO, memberId) {

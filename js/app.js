@@ -2,7 +2,6 @@ import {
   subscribeDB, saveDB, resetToSeed, uid, ensureMonth, peekMonth,
   activeMembers, mealMembers, memberById, memberName,
   computeSummary, computeTransfers, getFixed, setFixed,
-  managerOn, currentDuty, suggestNextManager,
   mealFor, dayConfirmed, memberMealTotal, allMealTotal,
   exportDB, exportMonth, importFile
 } from './store.js';
@@ -66,8 +65,6 @@ function init() {
 function normalizeDB() {
   if (!DB.members) DB.members = [];
   if (!DB.months) DB.months = {};
-  if (!DB.duty) DB.duty = [];
-  if (!DB.rotationOrder) DB.rotationOrder = [];
   if (!DB.settings) DB.settings = {};
 
   // A stale device identity (after a reset or an import) must not stick around.
@@ -228,42 +225,37 @@ function chips(members, selectedId, field = 'memberId') {
 function emptyMsg(text) { return `<p class="empty">${text}</p>`; }
 
 /**
- * Tap a grid cell and this opens over it: − / + plus quick numbers. Meals go
- * well past 2, so a fixed tap-cycle can't work, and a stepper in every cell
- * would push the month grid off the side of a phone.
+ * Tap a grid cell and this opens over it: every possible meal count, 0 to 5 in
+ * half steps. Tapping a number enters it and closes — one tap, no confirm.
  */
 function openCellEditor(anchor, label, value, onPick) {
   closeCellEditor();
   entryBusy = true;
-  let v = Number(value) || 0;
+  const cur = Number(value) || 0;
+
+  const choices = [];
+  for (let n = 0; n <= MAX_MEAL; n += 0.5) choices.push(n);
 
   const pop = document.createElement('div');
   pop.className = 'cell-pop';
   pop.innerHTML = `
     <div class="cell-pop-label">${esc(label)}</div>
-    <div class="cell-pop-row">
-      <button class="step-btn" data-d="-1">−</button>
-      <span class="cell-pop-val">${num(v)}</span>
-      <button class="step-btn" data-d="1">+</button>
-    </div>
     <div class="cell-pop-quick">
-      ${[0, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5].map((n) => `<button class="chip" data-set="${n}">${num(n)}</button>`).join('')}
-    </div>
-    <button class="btn btn-primary btn-block btn-sm" data-done>ঠিক আছে</button>`;
+      ${choices.map((n) => `<button class="chip ${n === cur ? 'active' : ''}" data-set="${n}">${num(n)}</button>`).join('')}
+    </div>`;
   document.body.appendChild(pop);
 
   const r = anchor.getBoundingClientRect();
-  const w = 268;
+  const w = 244;
   pop.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
   const below = r.bottom + 8;
   pop.style.top = `${below + pop.offsetHeight > window.innerHeight - 8 ? Math.max(8, r.top - pop.offsetHeight - 8) : below}px`;
 
-  const show = () => { pop.querySelector('.cell-pop-val').textContent = num(v); };
-  const apply = (next) => { v = Math.min(MAX_MEAL, Math.max(0, Math.round(next * 2) / 2)); show(); onPick(v); };
-
-  pop.querySelectorAll('[data-d]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); apply(v + Number(b.dataset.d) * 0.5); }));
-  pop.querySelectorAll('[data-set]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); apply(Number(b.dataset.set)); }));
-  pop.querySelector('[data-done]').onclick = (e) => { e.stopPropagation(); closeCellEditor(); };
+  pop.querySelectorAll('[data-set]').forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    onPick(Number(b.dataset.set));
+    closeCellEditor();
+  }));
 
   setTimeout(() => document.addEventListener('click', outsideClose), 0);
 }
@@ -323,8 +315,6 @@ function renderToday(root) {
   const today = todayISO();
   const month = peekMonth(DB, monthKey);
   const eaters = mealMembers(DB);
-  const mgr = managerOn(DB, today);
-  const iAmManager = mgr && me() && mgr.id === me().id;
   const s = computeSummary(DB, monthKey);
   const mine = s.rows.find((r) => me() && r.member.id === me().id);
 
@@ -344,14 +334,6 @@ function renderToday(root) {
   const gaps = missingDays(month, monthKey);
 
   root.innerHTML = `
-    <div class="duty-strip">
-      ${mgr
-        ? `<div class="duty-who">${avatar(mgr.name, 'sm')}<div><b>${iAmManager ? 'আজ তোমার ডিউটি' : esc(mgr.name) + ' এই সপ্তাহের ম্যানেজার'}</b>
-             <div class="duty-sub">${dutySubtitle(today)}</div></div></div>`
-        : `<div class="duty-who"><div><b>এই সপ্তাহে ম্যানেজার কে?</b><div class="duty-sub">কেউ ঠিক করা নেই</div></div></div>`}
-      <button class="btn btn-ghost btn-sm" id="dutyBtn">${mgr ? 'বদলাও' : 'ঠিক করো'}</button>
-    </div>
-
     ${mine ? `
     <div class="my-card">
       <div class="my-row"><span>আমি খেয়েছি</span><b>${num(mine.meals)} meal</b></div>
@@ -402,7 +384,6 @@ function renderToday(root) {
   root.querySelector('#saveMeals') && (root.querySelector('#saveMeals').onclick = () => saveDay(day));
   root.querySelector('#prevDay').onclick = () => { if (day > monthDays[0]) goDay(addDays(day, -1)); };
   root.querySelector('#nextDay').onclick = () => { if (day < lastDay) goDay(addDays(day, 1)); };
-  root.querySelector('#dutyBtn').onclick = openDutyModal;
   root.querySelector('#addBazar').onclick = () => openCostModal({ kind: 'bazar', date: day });
   root.querySelector('#addBill').onclick = () => openCostModal({ kind: 'bill', date: day });
 }
@@ -562,13 +543,6 @@ function bindBackfill(root, eaters, gaps) {
     render();
     toast(`${gaps.length} দিন ভরা হয়েছে ✓`);
   };
-}
-
-function dutySubtitle(today) {
-  const d = currentDuty(DB, today);
-  if (!d) return '';
-  const days = Math.round((new Date(today) - new Date(d.from)) / 86400000) + 1;
-  return `দিন ${days} · শুরু ${dayLabel(d.from)}`;
 }
 
 /** Yesterday's confirmed counts, else 1 each — a proposal, never auto-saved. */
@@ -998,17 +972,6 @@ function renderMore(root) {
     </div>
 
     <div class="card">
-      <h3>🔁 ম্যানেজার</h3>
-      <div class="duty-log">
-        ${(DB.duty || []).slice().sort((a, b) => b.from.localeCompare(a.from)).slice(0, 6).map((d) => `
-          <div class="duty-log-row">${avatar(memberName(DB, d.memberId), 'xs')}
-            <span>${esc(memberName(DB, d.memberId))}</span><span class="muted">${esc(d.from)} থেকে</span></div>`).join('')
-          || emptyMsg('এখনো কেউ ঠিক করা হয়নি।')}
-      </div>
-      <button class="btn btn-primary btn-sm" id="dutyBtn2">ম্যানেজার বদলাও</button>
-    </div>
-
-    <div class="card">
       <h3>💾 ব্যাকআপ</h3>
       <div class="chip-filter">
         <button class="btn btn-ghost btn-sm" id="exportAll">⬇ সব</button>
@@ -1038,7 +1001,6 @@ function renderMore(root) {
   root.querySelector('#changeMe').onclick = () => { LS.me = ''; render(); };
   root.querySelector('#lightBtn').onclick = () => { applyTheme('light'); render(); };
   root.querySelector('#darkBtn').onclick = () => { applyTheme('dark'); render(); };
-  root.querySelector('#dutyBtn2').onclick = openDutyModal;
   root.querySelector('#exportAll').onclick = () => { exportDB(DB, todayISO()); toast('ডাউনলোড হয়েছে'); };
   root.querySelector('#exportMonth').onclick = () => { exportMonth(DB, currentMonth()); toast('ডাউনলোড হয়েছে'); };
   root.querySelector('#importInput').onchange = handleImport;
@@ -1090,46 +1052,6 @@ function openMemberModal(id) {
     closeModal();
     render();
     toast('সেভ হয়েছে ✓');
-  };
-}
-
-function openDutyModal() {
-  const suggested = suggestNextManager(DB);
-  const members = activeMembers(DB);
-  openModal(`
-    <h3>এই সপ্তাহে ম্যানেজার কে?</h3>
-    <p class="hint">যে কেউ বেছে দিতে পারে — কাউকে দোষ দেওয়ার কিছু নেই।</p>
-    <form id="dutyForm">
-      ${chips(members, suggested)}
-      <input type="hidden" name="memberId" value="${suggested || ''}">
-      <label>কবে থেকে</label>
-      <input type="date" name="from" value="${todayISO()}">
-      <div class="modal-actions">
-        <div class="spacer"></div>
-        <button type="button" class="btn btn-ghost" id="cancelBtn">বাতিল</button>
-        <button type="submit" class="btn btn-primary">ঠিক আছে</button>
-      </div>
-    </form>`);
-  const form = document.getElementById('dutyForm');
-  form.querySelectorAll('.who-chip').forEach((c) => (c.onclick = () => {
-    form.querySelectorAll('.who-chip').forEach((x) => x.classList.remove('active'));
-    c.classList.add('active');
-    form.querySelector('[name="memberId"]').value = c.dataset.id;
-  }));
-  document.getElementById('cancelBtn').onclick = closeModal;
-  form.onsubmit = (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const memberId = fd.get('memberId');
-    if (!memberId) return toast('একজনকে বেছে নাও', 'error');
-    mutateDB((db) => {
-      db.duty = (db.duty || []).filter((d) => d.from !== fd.get('from'));
-      db.duty.push({ id: uid('duty'), from: fd.get('from'), memberId });
-      if (!db.rotationOrder.length) db.rotationOrder = activeMembers(db).map((m) => m.id);
-    });
-    closeModal();
-    render();
-    toast('ম্যানেজার ঠিক হয়েছে ✓');
   };
 }
 
